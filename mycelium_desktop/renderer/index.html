@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>US Neural | Mycelium Agent Coordinator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="../assets/icon.png">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    (function() {
+      try {
+        var t = localStorage.getItem('mycelium_theme');
+        if (t) document.documentElement.className = 'theme-' + t;
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <!-- Ambient High-Energy Neon Carbon Glows -->
+  <div class="ambient-glow glow-top-right"></div>
+  <div class="ambient-glow glow-bottom-left"></div>
+  <div class="ambient-glow glow-center"></div>
+
+  <div class="window-frame">
+    <!-- Draggable App Header / Titlebar -->
+    <header class="titlebar">
+      <div class="titlebar-drag-region">
+        <div class="titlebar-brand">
+          <div class="brand-glyph-aura">
+            <div class="brand-glyph">
+              <img src="../assets/icon.png" alt="Mycelium" class="brand-logo-img">
+            </div>
+          </div>
+          <span class="brand-title">MYCELIUM</span>
+          <span class="brand-subtag">ENGINE</span>
+          <span class="workspace-crumb" id="workspace-crumb">workspace</span>
+        </div>
+      </div>
+
+      <div class="titlebar-actions">
+        <!-- Live Registry Network Badge -->
+        <div id="nodes-active-badge" class="network-badge" title="Inspect Active Mesh Nodes & Capabilities (/mesh)">
+          <span class="mesh-ping-dot" id="registry-ping-dot"></span>
+          <span id="registry-badge-text">CONNECTING REGISTRY...</span>
+        </div>
+
+        <!-- Terminal Toggle -->
+        <button id="toggle-drawer-btn" class="titlebar-btn" title="Toggle Terminal & Diff Drawer">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="12" height="12" rx="2"></rect>
+            <path d="M2 10.5h12"></path>
+          </svg>
+          <span>Terminal</span>
+        </button>
+
+        <!-- Settings Modal Button -->
+        <button id="settings-btn" class="titlebar-btn" title="Settings & Multi-Provider LLM Gateway">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="8" cy="8" r="2.3"></circle>
+            <path d="M8 1.5v1.2M8 13.3v1.2M1.5 8h1.2M13.3 8h1.2M3.4 3.4l.85.85M11.75 11.75l.85.85M3.4 12.6l.85-.85M11.75 4.25l.85-.85"></path>
+          </svg>
+          <span>Settings</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace Container -->
+    <div class="workspace-layout">
+      <!-- Left Sidebar (Workspace Explorer) -->
+      <aside class="sidebar">
+        <!-- Workspace Explorer Section -->
+        <div class="sidebar-header">
+          <div class="sidebar-title-group">
+            <span class="sidebar-title">WORKSPACE</span>
+            <span class="sidebar-count" id="sidebar-file-count">0</span>
+          </div>
+          <button id="refresh-tree-btn" class="sidebar-icon-btn" title="Refresh files & sync mesh">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+              <path d="M13.5 8A5.5 5.5 0 118 2.5a5.5 5.5 0 014.8 2.8"></path>
+              <path d="M13.5 2.5v3h-3"></path>
+            </svg>
+          </button>
+        </div>
+
+        <!-- File Tree -->
+        <div id="file-tree" class="file-tree" data-testid="workspace-files-list">
+          <div class="tree-loading">
+            <span class="loading-spinner"></span>
+            <span>Syncing workspace...</span>
+          </div>
+        </div>
+
+        <!-- Electric Mesh Status Footer -->
+        <div class="sidebar-footer" id="vector-mesh-status">
+          <div class="mesh-status-indicator" id="mesh-status-tooltip" title="Click to test registry connection">
+            <div class="pulse-wrapper">
+              <span class="status-pulse-core" id="footer-pulse-core"></span>
+              <span class="status-pulse-ring" id="footer-pulse-ring"></span>
+            </div>
+            <div class="mesh-footer-text">
+              <span class="mesh-status-text" id="footer-status-text">Vector-Mesh Active</span>
+              <span class="mesh-status-sub" id="footer-provider-text">Groq LLM Gateway</span>
+            </div>
+            <span class="mesh-latency-pill" id="footer-latency-pill">--</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center Conversation & Stream Pane -->
+      <main class="center-pane">
+        <!-- Interactive Stream Feed -->
+        <div id="stream-feed" class="stream-feed">
+          <!-- In-Stream Registry Offline Banner -->
+          <div id="registry-alert-banner" class="registry-alert-card hidden">
+            <div class="alert-icon">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </div>
+            <div class="alert-text">
+              <div class="alert-title">Mycelium Registry Offline (127.0.0.1:8000)</div>
+              <div class="alert-desc">Operating in local daemon fallback mode. Launch local uvicorn server to enable multi-agent semantic discovery.</div>
+            </div>
+            <button id="launch-registry-banner-btn" class="launch-registry-action-btn">Launch Local Registry</button>
+          </div>
+
+          <!-- Energetic Designer Empty State -->
+          <div class="empty-state" id="empty-state">
+            <div class="empty-hero-visual">
+              <div class="hero-halo"></div>
+              <div class="empty-glyph">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                </svg>
+              </div>
+            </div>
+            <h2 class="gradient-text">What would you like to build or automate?</h2>
+            <p>Autonomous LLM reasoning, live semantic discovery, and isolated split-execution.</p>
+            
+            <!-- Energetic Starter Chips -->
+            <div class="starter-chips">
+              <button class="starter-chip chip-emerald" data-prompt="Query real-time host node diagnostics and platform telemetry">
+                <span class="chip-icon">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                  </svg>
+                </span>
+                <span class="chip-label">Inspect System Diagnostics</span>
+                <span class="chip-speed">&lt;15ms</span>
+              </button>
+              <button class="starter-chip chip-amber" data-prompt="Read workspace configuration file node_config.json">
+                <span class="chip-icon">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                    <polyline points="13 2 13 9 20 9"></polyline>
+                  </svg>
+                </span>
+                <span class="chip-label">Read node_config.json</span>
+                <span class="chip-speed">&lt;15ms</span>
+              </button>
+              <button class="starter-chip chip-coral" data-prompt="Execute dir shell command to enumerate workspace files">
+                <span class="chip-icon">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                  </svg>
+                </span>
+                <span class="chip-label">Run Terminal Task (HOL Guard)</span>
+                <span class="chip-speed">Quarantine</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Floating Glassmorphic Input Dock -->
+        <div class="input-dock-container">
+          <!-- Interactive Slash Command Autocomplete Popover -->
+          <div id="slash-command-menu" class="slash-command-menu hidden">
+            <div class="slash-menu-header">
+              <span class="slash-menu-title">COMMAND ENGINE</span>
+              <span class="slash-menu-hint">[Up / Down] to navigate &bull; [Enter / Tab] to run</span>
+            </div>
+            <div id="slash-command-items" class="slash-command-items">
+              <!-- Dynamically rendered -->
+            </div>
+          </div>
+
+          <div class="input-dock">
+            <textarea
+              id="prompt-input"
+              class="dock-textarea"
+              placeholder="Ask Mycelium to inspect code, run terminal tasks, or type / for commands..."
+              rows="1"
+            ></textarea>
+
+            <div class="dock-bottom-bar">
+              <div class="dock-left-controls">
+                <button id="privilege-toggle" class="privilege-pill" title="Toggle Execution Privilege">
+                  <span class="privilege-dot"></span>
+                  <span id="privilege-label">PERSON (Foreground)</span>
+                </button>
+                <div class="mesh-ready-badge" id="active-model-badge">
+                  <span class="model-verified-dot unverified" id="active-model-verified-dot" title="Key Verification Status"></span>
+                  <span class="ready-spark">#</span>
+                  <span id="active-model-label">Groq Llama 3.3 70B</span>
+                </div>
+                <!-- Zero-Token-Waste Session Tally Badge -->
+                <div class="token-counter-badge" id="token-counter-badge" title="Live session tokens and estimated cost">
+                  <span class="token-icon">~</span>
+                  <span id="token-counter-text">Session Tokens: ~0 (Est: $0.00)</span>
+                </div>
+              </div>
+
+              <div class="dock-right-controls">
+                <span class="key-hint" id="send-key-hint">Enter</span>
+                <button id="send-btn" class="send-btn" title="Send Request">
+                  <svg viewBox="0 0 16 16" fill="currentColor" id="send-btn-icon">
+                    <path d="M3.2 2.2a.75.75 0 01.8-.1l9.5 5a.75.75 0 010 1.3l-9.5 5a.75.75 0 01-1-.9L4.8 8 2.5 3.5a.75.75 0 01.7-1.3z"></path>
+                  </svg>
+                  <span id="send-btn-label" class="send-btn-label hidden" style="display: none;">Stop</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Bottom Execution & Diff Drawer (Toggleable) -->
+    <div id="execution-drawer" class="execution-drawer collapsed">
+      <div class="drawer-header">
+        <div class="drawer-tabs">
+          <button class="drawer-tab active" data-tab="terminal-tab">
+            <span class="tab-indicator emerald"></span>
+            <span>Subshell Terminal</span>
+          </button>
+          <button class="drawer-tab" data-tab="diff-tab">
+            <span class="tab-indicator amber"></span>
+            <span>File & Diff Viewer</span>
+          </button>
+          <button class="drawer-tab" data-tab="audit-tab">
+            <span class="tab-indicator coral"></span>
+            <span>HOL Telemetry Audit</span>
+          </button>
+        </div>
+
+        <div class="drawer-actions">
+          <button id="clear-terminal-btn" class="drawer-btn" title="Clear terminal">Clear</button>
+          <button id="close-drawer-btn" class="drawer-btn" title="Close drawer">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M3.7 3.7a.75.75 0 011 0L8 7l3.3-3.3a.75.75 0 111 1L9 8l3.3 3.3a.75.75 0 01-1 1L8 9l-3.3 3.3a.75.75 0 01-1-1L7 8 3.7 4.7a.75.75 0 010-1z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="drawer-body">
+        <!-- Terminal Tab -->
+        <div id="terminal-tab" class="drawer-panel active">
+          <div id="terminal-logs" class="terminal-view">
+            <div class="term-row dim">[LocalExecDaemon] Ready. Sandboxed subprocess engine operational.</div>
+          </div>
+        </div>
+
+        <!-- File / Diff Viewer Tab -->
+        <div id="diff-tab" class="drawer-panel">
+          <div class="file-view-header">
+            <span id="diff-file-title" class="diff-title">No file selected</span>
+            <button id="copy-file-btn" class="copy-pill-btn">Copy Content</button>
+          </div>
+          <pre id="diff-content" class="code-view"><code>// Click any file in the Explorer to inspect contents.</code></pre>
+        </div>
+
+        <!-- Audit Log Tab -->
+        <div id="audit-tab" class="drawer-panel">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Intent</th>
+                <th>Safety</th>
+                <th>Privilege</th>
+                <th>Latency</th>
+                <th>Decision</th>
+              </tr>
+            </thead>
+            <tbody id="audit-table-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Designer HOL Guard Security Modal -->
+    <div id="hol-modal-backdrop" class="modal-backdrop hidden">
+      <div class="hol-card">
+        <div class="hol-card-aura"></div>
+        <div class="hol-card-header">
+          <div class="hol-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <div class="hol-header-text">
+            <h3>HOL Guard Quarantine</h3>
+            <p>State-altering mutation intercepted. Operator sign-off required.</p>
+          </div>
+          <span class="hol-shield-pill">ZERO TRUST</span>
+        </div>
+
+        <div class="hol-card-body">
+          <div class="hol-field">
+            <label>Action Intent</label>
+            <div id="modal-intent" class="hol-intent-text">--</div>
+          </div>
+
+          <div class="hol-field">
+            <label>Target Command / Payload</label>
+            <div class="hol-code-block">
+              <code id="modal-payload-code">--</code>
+            </div>
+          </div>
+
+          <div class="hol-meta-row">
+            <div class="meta-item">
+              <label>Classification</label>
+              <span id="modal-safety-tier" class="badge-mutating">MUTATING</span>
+            </div>
+            <div class="meta-item">
+              <label>Privilege Tier</label>
+              <span id="modal-privilege-tier" class="badge-privilege">PERSON</span>
+            </div>
+            <div class="meta-item">
+              <label>Quarantine ID</label>
+              <span id="modal-qid" class="mono-qid">--</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hol-card-footer">
+          <button id="hol-reject-btn" class="btn-deny">Quarantine & Deny</button>
+          <button id="hol-approve-btn" class="btn-authorize">
+            <span>Authorize & Execute</span>
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Designer Two-Column "Provider & Mesh Hub" Settings Modal -->
+    <div id="settings-modal-backdrop" class="modal-backdrop hidden">
+      <div class="settings-hub-card">
+        <!-- Hub Header -->
+        <div class="settings-hub-header">
+          <div class="settings-header-left">
+            <div class="settings-icon-glyph">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+            </div>
+            <div>
+              <h3>Provider & Mesh Intelligence Hub</h3>
+              <p>Configure model inference brains, custom endpoints, and live semantic vector registry.</p>
+            </div>
+          </div>
+          <button id="close-settings-btn" class="settings-close-btn" title="Close Settings">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M3.7 3.7a.75.75 0 011 0L8 7l3.3-3.3a.75.75 0 111 1L9 8l3.3 3.3a.75.75 0 01-1 1L8 9l-3.3 3.3a.75.75 0 01-1-1L7 8 3.7 4.7a.75.75 0 010-1z"></path>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Hub Body: Single-Column with Top Provider Dropdown Selector -->
+        <div class="settings-hub-body single-column-hub">
+          <!-- Provider Dropdown Selector Bar -->
+          <div class="hub-provider-selector-bar">
+            <div class="settings-nav-tabs-row">
+              <div class="settings-nav-pills" id="settings-nav-pills">
+                <button type="button" class="settings-nav-pill active" data-tab="tab-appearance">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M12 2a10 10 0 0 1 0 20v-20z"></path>
+                  </svg>
+                  <span>Appearance</span>
+                </button>
+                <button type="button" class="settings-nav-pill" data-tab="tab-general">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                  </svg>
+                  <span>General & System</span>
+                </button>
+                <button type="button" class="settings-nav-pill" data-tab="tab-groq">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+                  </svg>
+                  <span>Model Providers</span>
+                </button>
+                <button type="button" class="settings-nav-pill" data-tab="tab-mesh">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                  </svg>
+                  <span>Mesh Registry</span>
+                </button>
+              </div>
+
+              <div class="provider-dropdown-container">
+                <select id="hub-provider-select" class="hub-provider-dropdown">
+                  <optgroup label="SYSTEM PREFERENCES">
+                    <option value="tab-appearance" data-category="appearance">Appearance (Themes, Accent, Fonts, Zoom)</option>
+                    <option value="tab-general" data-category="general">General & System (Workspace, Tray, Behavior)</option>
+                  </optgroup>
+                  <optgroup label="MODEL PROVIDERS">
+                    <option value="tab-groq" data-provider="groq">Groq (Llama 3.3 70B — Ultra-Fast)</option>
+                    <option value="tab-anthropic" data-provider="claude">Anthropic (Claude 3.5 Sonnet)</option>
+                    <option value="tab-openai" data-provider="openai">OpenAI (GPT-4o / o1)</option>
+                    <option value="tab-gemini" data-provider="gemini">Google Gemini (2.0 Flash / Pro)</option>
+                    <option value="tab-ollama" data-provider="ollama">Ollama (Local Offline / 0-Cost)</option>
+                    <option value="tab-custom" data-provider="custom">Custom Endpoint (OpenRouter, DeepSeek, Local)</option>
+                  </optgroup>
+                  <optgroup label="NETWORK INFRASTRUCTURE">
+                    <option value="tab-mesh" data-provider="mesh">Mycelium Mesh (Vector Registry)</option>
+                  </optgroup>
+                </select>
+                <div class="dropdown-arrow-icon">
+                  <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6l5 5 5-5"></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Content Panels -->
+          <div class="settings-hub-content">
+            <!-- 0A. Appearance Panel -->
+            <div id="tab-appearance" class="settings-tab-panel active">
+              <div class="panel-header-banner">
+                <div class="banner-title-wrap">
+                  <div>
+                    <h4>Appearance & Workspace Styling</h4>
+                    <p>Customize themes, accent colors, editor typography, and window scaling.</p>
+                  </div>
+                </div>
+                <span class="panel-tag active-tag">INTERFACE SUITE</span>
+              </div>
+
+              <!-- Theme Presets -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <label>THEME PRESETS</label>
+                  <span class="label-tag">Dark Mode Palettes</span>
+                </div>
+                <div class="theme-card-grid">
+                  <div class="theme-card" data-theme="midnight" id="theme-card-midnight">
+                    <div class="theme-preview-box preview-midnight">
+                      <div class="preview-sidebar"></div>
+                      <div class="preview-content"><span class="preview-dot"></span></div>
+                    </div>
+                    <div class="theme-card-info">
+                      <span class="theme-card-title">Midnight OLED</span>
+                      <span class="theme-card-desc">Pure black #000000 for OLED</span>
+                    </div>
+                  </div>
+                  <div class="theme-card active" data-theme="charcoal" id="theme-card-charcoal">
+                    <div class="theme-preview-box preview-charcoal">
+                      <div class="preview-sidebar"></div>
+                      <div class="preview-content"><span class="preview-dot"></span></div>
+                    </div>
+                    <div class="theme-card-info">
+                      <span class="theme-card-title">Charcoal Dark</span>
+                      <span class="theme-card-desc">GitHub & Cursor dark #0d1117</span>
+                    </div>
+                  </div>
+                  <div class="theme-card" data-theme="cyber-slate" id="theme-card-cyber-slate">
+                    <div class="theme-preview-box preview-slate">
+                      <div class="preview-sidebar"></div>
+                      <div class="preview-content"><span class="preview-dot"></span></div>
+                    </div>
+                    <div class="theme-card-info">
+                      <span class="theme-card-title">Cyber Slate</span>
+                      <span class="theme-card-desc">VS Code modern slate #161b22</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Accent Color Palette -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <label>ACCENT COLOR PALETTE</label>
+                  <span class="label-tag">Dynamic Brand Tokens</span>
+                </div>
+                <div class="accent-swatch-row">
+                  <button type="button" class="accent-swatch-btn active" data-accent="#00ff9d" style="--swatch-color: #00ff9d;">
+                    <span class="swatch-indicator"></span>
+                    <span class="swatch-label">Emerald Green (#00FF66)</span>
+                  </button>
+                  <button type="button" class="accent-swatch-btn" data-accent="#00e5ff" style="--swatch-color: #00e5ff;">
+                    <span class="swatch-indicator"></span>
+                    <span class="swatch-label">Cyber Cyan (#00E5FF)</span>
+                  </button>
+                  <button type="button" class="accent-swatch-btn" data-accent="#a855f7" style="--swatch-color: #a855f7;">
+                    <span class="swatch-indicator"></span>
+                    <span class="swatch-label">Claude Purple (#A855F7)</span>
+                  </button>
+                  <button type="button" class="accent-swatch-btn" data-accent="#ffffff" style="--swatch-color: #ffffff;">
+                    <span class="swatch-indicator"></span>
+                    <span class="swatch-label">Clean White (#FFFFFF)</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Typography Controls -->
+              <div class="settings-field-grid">
+                <div class="settings-field">
+                  <div class="label-row">
+                    <label for="setting-font-family">CODE & INTERFACE FONT</label>
+                  </div>
+                  <select id="setting-font-family" class="settings-input">
+                    <option value="JetBrains Mono">JetBrains Mono (Default)</option>
+                    <option value="Fira Code">Fira Code</option>
+                    <option value="Cascadia Code">Cascadia Code</option>
+                    <option value="System Monospace">System Monospace</option>
+                  </select>
+                </div>
+
+                <div class="settings-field">
+                  <div class="label-row">
+                    <label for="setting-font-size-slider">BASE FONT SIZE</label>
+                    <span class="label-tag" id="setting-font-size-val">14px</span>
+                  </div>
+                  <div class="slider-row">
+                    <input type="range" id="setting-font-size-slider" min="12" max="18" value="14" step="1" class="settings-slider">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Desktop Window Zoom & Performance Mode -->
+              <div class="settings-field-grid">
+                <div class="settings-field">
+                  <div class="label-row">
+                    <label for="setting-zoom-select">DESKTOP WINDOW ZOOM</label>
+                  </div>
+                  <select id="setting-zoom-select" class="settings-input">
+                    <option value="0.8">80%</option>
+                    <option value="0.9">90%</option>
+                    <option value="1.0" selected>100% (Default)</option>
+                    <option value="1.1">110%</option>
+                    <option value="1.2">120%</option>
+                  </select>
+                </div>
+
+                <div class="settings-checkbox-card" style="margin-top: 19px;">
+                  <div class="checkbox-text">
+                    <span class="check-title">Performance / Low Spec Mode</span>
+                    <span class="check-sub">Disables backdrop blurs and heavy transitions for max FPS</span>
+                  </div>
+                  <label class="switch-control">
+                    <input type="checkbox" id="setting-performance-toggle">
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- 0B. General & System Panel -->
+            <div id="tab-general" class="settings-tab-panel">
+              <div class="panel-header-banner">
+                <div class="banner-title-wrap">
+                  <div>
+                    <h4>General & System Integration</h4>
+                    <p>Configure project workspaces, system tray persistence, and interaction behavior.</p>
+                  </div>
+                </div>
+                <span class="panel-tag active-tag">SYSTEM BEHAVIOR</span>
+              </div>
+
+              <!-- Active Workspace Selector -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <label for="setting-workspace-path">ACTIVE WORKSPACE DIRECTORY</label>
+                  <span class="label-tag">Current Project Root</span>
+                </div>
+                <div class="workspace-picker-row">
+                  <input type="text" id="setting-workspace-path" class="settings-input" placeholder="Select workspace directory..." readonly>
+                  <button type="button" id="setting-browse-workspace-btn" class="secondary-browse-btn" title="Browse for project folder">
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M1.5 3.5A1.5 1.5 0 0 1 3 2h3.5a1.5 1.5 0 0 1 1.2.6L8.8 4H13a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 13 14H3a1.5 1.5 0 0 1-1.5-1.5v-9z"></path>
+                    </svg>
+                    <span>Browse Folder...</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Desktop Behavior Toggles -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <label>DESKTOP BEHAVIOR & INTEGRATION</label>
+                </div>
+                <div class="settings-toggle-group">
+                  <div class="settings-checkbox-card">
+                    <div class="checkbox-text">
+                      <span class="check-title">Minimize to System Tray on Close</span>
+                      <span class="check-sub">Keeps background daemons and agent sessions running silently</span>
+                    </div>
+                    <label class="switch-control">
+                      <input type="checkbox" id="setting-minimize-tray-toggle">
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="settings-checkbox-card">
+                    <div class="checkbox-text">
+                      <span class="check-title">Launch on Windows Startup</span>
+                      <span class="check-sub">Automatically starts Mycelium desktop service with Windows login</span>
+                    </div>
+                    <label class="switch-control">
+                      <input type="checkbox" id="setting-launch-startup-toggle">
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="settings-checkbox-card">
+                    <div class="checkbox-text">
+                      <span class="check-title">Auto-scroll Chat During Streaming</span>
+                      <span class="check-sub">Automatically pins the viewport to newly streamed agent responses</span>
+                    </div>
+                    <label class="switch-control">
+                      <input type="checkbox" id="setting-autoscroll-toggle" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Notification & Sound -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <label>NOTIFICATIONS & SOUND EFFECTS</label>
+                </div>
+                <div class="settings-toggle-group">
+                  <div class="settings-checkbox-card">
+                    <div class="checkbox-text">
+                      <span class="check-title">Desktop Notifications</span>
+                      <span class="check-sub">System banners for HOL Guard approval alerts and agent task completions</span>
+                    </div>
+                    <label class="switch-control">
+                      <input type="checkbox" id="setting-notifications-toggle" checked>
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="settings-checkbox-card">
+                    <div class="checkbox-text">
+                      <span class="check-title">Synthesized Sound Effects</span>
+                      <span class="check-sub">Subtle audio chime on action authorization and critical alerts</span>
+                    </div>
+                    <div class="sound-toggle-actions">
+                      <button type="button" id="setting-test-sound-btn" class="sound-test-btn" title="Test audio chime">Test Chime</button>
+                      <label class="switch-control">
+                        <input type="checkbox" id="setting-sound-toggle" checked>
+                        <span class="switch-slider"></span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Maintenance & Cache Flush -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <label>MAINTENANCE & CACHE</label>
+                  <span class="label-tag">Diagnostics</span>
+                </div>
+                <div class="cache-reset-box">
+                  <div class="cache-info-text">
+                    <span class="cache-title">Clear Session Cache & Reset App Data</span>
+                    <span class="cache-desc">Flushes local storage, clears IPC cached requests, and refreshes coordinator state.</span>
+                  </div>
+                  <button type="button" id="setting-clear-cache-btn" class="danger-reset-btn">
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M2 4h12M5.3 4V2.7A1.3 1.3 0 0 1 6.7 1.3h2.6a1.3 1.3 0 0 1 1.3 1.4V4m2 0v9.3a1.3 1.3 0 0 1-1.3 1.4H4.7a1.3 1.3 0 0 1-1.4-1.4V4"></path>
+                    </svg>
+                    <span>Flush Cache</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 1. Mycelium Mesh Panel -->
+            <div id="tab-mesh" class="settings-tab-panel">
+              <div class="panel-header-banner">
+                <div class="banner-title-wrap">
+                  <div>
+                    <h4>Mycelium Semantic Vector-Mesh</h4>
+                    <p>Local and remote semantic agent registry powering sub-15ms tool discovery.</p>
+                  </div>
+                </div>
+                <span class="panel-tag active-tag">CORE INFRASTRUCTURE</span>
+              </div>
+
+              <!-- Registry URL -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <label for="setting-registry-url">MYCELIUM_REGISTRY_URL</label>
+                  <span class="label-tag">Default Endpoint</span>
+                </div>
+                <input type="text" id="setting-registry-url" class="settings-input" value="http://127.0.0.1:8000/api/v1">
+              </div>
+
+              <!-- Enterprise Key -->
+              <div class="settings-field">
+                <label for="setting-enterprise-key">MYCELIUM_ENTERPRISE_KEY (Optional Bearer Token)</label>
+                <div class="password-input-wrap">
+                  <input type="password" id="setting-enterprise-key" class="settings-input" placeholder="Optional enterprise verification token" autocomplete="off">
+                  <button type="button" class="toggle-visibility-btn" data-target="setting-enterprise-key" title="Toggle visibility"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+                </div>
+              </div>
+
+              <!-- Auto-Spawn Toggle -->
+              <div class="settings-checkbox-card">
+                <div class="checkbox-text">
+                  <span class="check-title">Auto-Launch Local Registry Server</span>
+                  <span class="check-sub">Automatically spawns background <code>uvicorn server.app:app</code> on 127.0.0.1:8000 if offline.</span>
+                </div>
+                <label class="switch-control">
+                  <input type="checkbox" id="setting-autospawn-toggle" checked>
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+
+              <!-- Live Mesh Diagnostics Strip -->
+              <div class="settings-status-strip">
+                <div class="status-indicator-wrap">
+                  <span id="settings-status-dot" class="status-dot-amber"></span>
+                  <span id="settings-status-text" class="status-text">Checking registry connection...</span>
+                </div>
+                <div class="status-actions">
+                  <button type="button" id="test-connection-btn" class="settings-action-btn test-connection-btn" data-provider="mesh">
+                    <svg class="btn-test-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M2 8a6 6 0 1 1 12 0A6 6 0 0 1 2 8z"></path>
+                      <path d="M8 5v3l2 2"></path>
+                    </svg>
+                    <span>Test Connection</span>
+                  </button>
+                  <button type="button" id="launch-registry-modal-btn" class="settings-action-btn launch-btn">Launch Registry</button>
+                </div>
+              </div>
+              <div class="key-action-row" style="margin-top: 8px;">
+                <span id="mesh-validation-pill" class="validation-pill hidden"></span>
+              </div>
+            </div>
+
+            <!-- 2. Groq Panel -->
+            <div id="tab-groq" class="settings-tab-panel active">
+              <div class="active-engine-bar">
+                <div class="engine-bar-left">
+                  <span class="engine-indicator-dot" id="dot-groq"></span>
+                  <div>
+                    <div class="engine-title">Groq LPU Acceleration</div>
+                    <div class="engine-desc">Ultra-fast inference (500+ tokens/sec) on LPUs</div>
+                  </div>
+                </div>
+                <button type="button" class="use-as-engine-btn" data-provider="groq" id="use-groq-btn">
+                  <svg class="btn-check-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+                  <span class="btn-engine-text">Set as Active Engine</span>
+                </button>
+              </div>
+
+              <!-- Model Selector -->
+              <div class="settings-field">
+                <label for="setting-groq-model">Model Selection</label>
+                <select id="setting-groq-model" class="settings-select">
+                  <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Default — Recommended)</option>
+                  <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest ~800 tok/s)</option>
+                  <option value="mixtral-8x7b-32768">mixtral-8x7b-32768 (MoE Architecture)</option>
+                  <option value="gemma2-9b-it">gemma2-9b-it (Google Gemma 2)</option>
+                </select>
+              </div>
+
+              <!-- Key Input -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <div class="label-with-help">
+                    <label for="setting-groq-key">GROQ_API_KEY</label>
+                    <button type="button" class="help-question-btn" data-tooltip="groq-tooltip" title="How to get this key?">?</button>
+                  </div>
+                  <span class="label-tag recommended">Default Fast Provider</span>
+                </div>
+                <div class="password-input-wrap">
+                  <input type="password" id="setting-groq-key" class="settings-input" placeholder="gsk_..." autocomplete="off">
+                  <button type="button" class="toggle-visibility-btn" data-target="setting-groq-key" title="Toggle visibility"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+                </div>
+
+                <div class="key-action-row">
+                  <button type="button" id="validate-groq-btn" class="validate-key-btn test-connection-btn" data-provider="groq">
+                    <svg class="btn-test-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M2 8a6 6 0 1 1 12 0A6 6 0 0 1 2 8z"></path>
+                      <path d="M8 5v3l2 2"></path>
+                    </svg>
+                    <span>Test Connection</span>
+                  </button>
+                  <span id="groq-validation-pill" class="validation-pill hidden"></span>
+                </div>
+
+                <!-- Interactive Help Tooltip Card -->
+                <div id="groq-tooltip" class="help-tooltip-card hidden">
+                  <div class="tooltip-header">
+                    <span class="tooltip-title">How to get a Groq API Key</span>
+                    <span class="tooltip-cost-tag">Free Tier: 14,400 req/day</span>
+                  </div>
+                  <ol class="tooltip-steps">
+                    <li>Sign in to your free <strong>GroqCloud Console</strong> account.</li>
+                    <li>Navigate to the <strong>API Keys</strong> section in the sidebar.</li>
+                    <li>Click <strong>Create API Key</strong> and copy the token starting with <code>gsk_...</code>.</li>
+                  </ol>
+                  <div class="tooltip-footer">
+                    <button type="button" class="open-external-btn" data-url="https://console.groq.com/keys">
+                      <span>Get Groq Key ↗</span>
+                    </button>
+                    <span class="tooltip-hint">Opens console.groq.com/keys</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. Anthropic Claude Panel -->
+            <div id="tab-anthropic" class="settings-tab-panel">
+              <div class="active-engine-bar">
+                <div class="engine-bar-left">
+                  <span class="engine-indicator-dot" id="dot-anthropic"></span>
+                  <div>
+                    <div class="engine-title">Anthropic Claude Intelligence</div>
+                    <div class="engine-desc">Top-tier software engineering and code generation benchmarks</div>
+                  </div>
+                </div>
+                <button type="button" class="use-as-engine-btn" data-provider="claude" id="use-anthropic-btn">
+                  <svg class="btn-check-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+                  <span class="btn-engine-text">Set as Active Engine</span>
+                </button>
+              </div>
+
+              <!-- Model Selector -->
+              <div class="settings-field">
+                <label for="setting-anthropic-model">Model Selection</label>
+                <select id="setting-anthropic-model" class="settings-select">
+                  <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022 (Default — Premier Coding)</option>
+                  <option value="claude-3-5-haiku-20241022">claude-3-5-haiku-20241022 (High Speed)</option>
+                  <option value="claude-3-opus-20240229">claude-3-opus-20240229 (Complex Reasoning)</option>
+                </select>
+              </div>
+
+              <!-- Key Input -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <div class="label-with-help">
+                    <label for="setting-anthropic-key">ANTHROPIC_API_KEY</label>
+                    <button type="button" class="help-question-btn" data-tooltip="anthropic-tooltip" title="How to get this key?">?</button>
+                  </div>
+                  <span class="label-tag">Direct API</span>
+                </div>
+                <div class="password-input-wrap">
+                  <input type="password" id="setting-anthropic-key" class="settings-input" placeholder="sk-ant-..." autocomplete="off">
+                  <button type="button" class="toggle-visibility-btn" data-target="setting-anthropic-key" title="Toggle visibility"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+                </div>
+
+                <div class="key-action-row">
+                  <button type="button" id="validate-anthropic-btn" class="validate-key-btn test-connection-btn" data-provider="claude">
+                    <svg class="btn-test-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M2 8a6 6 0 1 1 12 0A6 6 0 0 1 2 8z"></path>
+                      <path d="M8 5v3l2 2"></path>
+                    </svg>
+                    <span>Test Connection</span>
+                  </button>
+                  <span id="anthropic-validation-pill" class="validation-pill hidden"></span>
+                </div>
+
+                <!-- Interactive Help Tooltip Card -->
+                <div id="anthropic-tooltip" class="help-tooltip-card hidden">
+                  <div class="tooltip-header">
+                    <span class="tooltip-title">How to get an Anthropic API Key</span>
+                    <span class="tooltip-cost-tag">Tier 1: Pay-as-you-go</span>
+                  </div>
+                  <ol class="tooltip-steps">
+                    <li>Sign in to the <strong>Anthropic Console</strong>.</li>
+                    <li>Open <strong>Settings</strong> > <strong>API Keys</strong> in the dashboard.</li>
+                    <li>Click <strong>Create Key</strong> and copy the token starting with <code>sk-ant-...</code>.</li>
+                  </ol>
+                  <div class="tooltip-footer">
+                    <button type="button" class="open-external-btn" data-url="https://console.anthropic.com/settings/keys">
+                      <span>Get Anthropic Key ↗</span>
+                    </button>
+                    <span class="tooltip-hint">Opens console.anthropic.com</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. OpenAI Panel -->
+            <div id="tab-openai" class="settings-tab-panel">
+              <div class="active-engine-bar">
+                <div class="engine-bar-left">
+                  <span class="engine-indicator-dot" id="dot-openai"></span>
+                  <div>
+                    <div class="engine-title">OpenAI Models</div>
+                    <div class="engine-desc">Flagship GPT-4o multimodal models and o1 reasoning</div>
+                  </div>
+                </div>
+                <button type="button" class="use-as-engine-btn" data-provider="openai" id="use-openai-btn">
+                  <svg class="btn-check-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+                  <span class="btn-engine-text">Set as Active Engine</span>
+                </button>
+              </div>
+
+              <!-- Model Selector -->
+              <div class="settings-field">
+                <label for="setting-openai-model">Model Selection</label>
+                <select id="setting-openai-model" class="settings-select">
+                  <option value="gpt-4o-mini">gpt-4o-mini (Default — Fast & Efficient)</option>
+                  <option value="gpt-4o">gpt-4o (Omni Flagship)</option>
+                  <option value="o1-mini">o1-mini (Specialized Logic & Code)</option>
+                  <option value="o1-preview">o1-preview (Extended Thinking)</option>
+                </select>
+              </div>
+
+              <!-- Key Input -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <div class="label-with-help">
+                    <label for="setting-openai-key">OPENAI_API_KEY</label>
+                    <button type="button" class="help-question-btn" data-tooltip="openai-tooltip" title="How to get this key?">?</button>
+                  </div>
+                  <span class="label-tag">Direct API</span>
+                </div>
+                <div class="password-input-wrap">
+                  <input type="password" id="setting-openai-key" class="settings-input" placeholder="sk-proj-..." autocomplete="off">
+                  <button type="button" class="toggle-visibility-btn" data-target="setting-openai-key" title="Toggle visibility"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+                </div>
+
+                <div class="key-action-row">
+                  <button type="button" id="validate-openai-btn" class="validate-key-btn test-connection-btn" data-provider="openai">
+                    <svg class="btn-test-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M2 8a6 6 0 1 1 12 0A6 6 0 0 1 2 8z"></path>
+                      <path d="M8 5v3l2 2"></path>
+                    </svg>
+                    <span>Test Connection</span>
+                  </button>
+                  <span id="openai-validation-pill" class="validation-pill hidden"></span>
+                </div>
+
+                <!-- Interactive Help Tooltip Card -->
+                <div id="openai-tooltip" class="help-tooltip-card hidden">
+                  <div class="tooltip-header">
+                    <span class="tooltip-title">How to get an OpenAI API Key</span>
+                    <span class="tooltip-cost-tag">Pay-as-you-go</span>
+                  </div>
+                  <ol class="tooltip-steps">
+                    <li>Sign in to the <strong>OpenAI Platform</strong>.</li>
+                    <li>Go to the <strong>API Keys</strong> page from your user profile.</li>
+                    <li>Click <strong>+ Create new secret key</strong> and copy the token.</li>
+                  </ol>
+                  <div class="tooltip-footer">
+                    <button type="button" class="open-external-btn" data-url="https://platform.openai.com/api-keys">
+                      <span>Get OpenAI Key ↗</span>
+                    </button>
+                    <span class="tooltip-hint">Opens platform.openai.com</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 5. Google Gemini Panel -->
+            <div id="tab-gemini" class="settings-tab-panel">
+              <div class="active-engine-bar">
+                <div class="engine-bar-left">
+                  <span class="engine-indicator-dot" id="dot-gemini"></span>
+                  <div>
+                    <div class="engine-title">Google Gemini Flash / Pro</div>
+                    <div class="engine-desc">1M+ token context window and high-speed multimodal reasoning</div>
+                  </div>
+                </div>
+                <button type="button" class="use-as-engine-btn" data-provider="gemini" id="use-gemini-btn">
+                  <svg class="btn-check-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+                  <span class="btn-engine-text">Set as Active Engine</span>
+                </button>
+              </div>
+
+              <!-- Model Selector -->
+              <div class="settings-field">
+                <label for="setting-gemini-model">Model Selection</label>
+                <select id="setting-gemini-model" class="settings-select">
+                  <option value="gemini-2.0-flash">gemini-2.0-flash (Default — Next-Gen Speed)</option>
+                  <option value="gemini-1.5-flash">gemini-1.5-flash (Balanced)</option>
+                  <option value="gemini-1.5-pro">gemini-1.5-pro (2M Token Context)</option>
+                </select>
+              </div>
+
+              <!-- Key Input -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <div class="label-with-help">
+                    <label for="setting-gemini-key">GEMINI_API_KEY</label>
+                    <button type="button" class="help-question-btn" data-tooltip="gemini-tooltip" title="How to get this key?">?</button>
+                  </div>
+                  <span class="label-tag">Google AI Studio</span>
+                </div>
+                <div class="password-input-wrap">
+                  <input type="password" id="setting-gemini-key" class="settings-input" placeholder="AIzaSy..." autocomplete="off">
+                  <button type="button" class="toggle-visibility-btn" data-target="setting-gemini-key" title="Toggle visibility"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+                </div>
+
+                <div class="key-action-row">
+                  <button type="button" id="validate-gemini-btn" class="validate-key-btn test-connection-btn" data-provider="gemini">
+                    <svg class="btn-test-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M2 8a6 6 0 1 1 12 0A6 6 0 0 1 2 8z"></path>
+                      <path d="M8 5v3l2 2"></path>
+                    </svg>
+                    <span>Test Connection</span>
+                  </button>
+                  <span id="gemini-validation-pill" class="validation-pill hidden"></span>
+                </div>
+
+                <!-- Interactive Help Tooltip Card -->
+                <div id="gemini-tooltip" class="help-tooltip-card hidden">
+                  <div class="tooltip-header">
+                    <span class="tooltip-title">How to get a Gemini API Key</span>
+                    <span class="tooltip-cost-tag">Free Tier: 15 RPM / 1M Context</span>
+                  </div>
+                  <ol class="tooltip-steps">
+                    <li>Sign in to <strong>Google AI Studio</strong> with your Google account.</li>
+                    <li>Click the <strong>Get API key</strong> button in the left sidebar.</li>
+                    <li>Click <strong>Create API key</strong> and select your Google Cloud project.</li>
+                  </ol>
+                  <div class="tooltip-footer">
+                    <button type="button" class="open-external-btn" data-url="https://aistudio.google.com/app/apikey">
+                      <span>Get Gemini Key ↗</span>
+                    </button>
+                    <span class="tooltip-hint">Opens aistudio.google.com</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 6. Ollama / Local Panel -->
+            <div id="tab-ollama" class="settings-tab-panel">
+              <div class="active-engine-bar">
+                <div class="engine-bar-left">
+                  <span class="engine-indicator-dot" id="dot-ollama"></span>
+                  <div>
+                    <div class="engine-title">Ollama Local Subsystem</div>
+                    <div class="engine-desc">100% offline, private, zero-telemetry local execution</div>
+                  </div>
+                </div>
+                <button type="button" class="use-as-engine-btn" data-provider="ollama" id="use-ollama-btn">
+                  <svg class="btn-check-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+                  <span class="btn-engine-text">Set as Active Engine</span>
+                </button>
+              </div>
+
+              <!-- Endpoint Input -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <div class="label-with-help">
+                    <label for="setting-ollama-endpoint">Ollama Daemon Endpoint</label>
+                    <button type="button" class="help-question-btn" data-tooltip="ollama-tooltip" title="How to set up Ollama?">?</button>
+                  </div>
+                  <span class="label-tag recommended">Zero Cloud Cost</span>
+                </div>
+                <input type="text" id="setting-ollama-endpoint" class="settings-input" value="http://localhost:11434">
+              </div>
+
+              <!-- Model Name -->
+              <div class="settings-field">
+                <label for="setting-ollama-model">Local Model Identifier</label>
+                <input type="text" id="setting-ollama-model" class="settings-input" value="llama3.2" placeholder="llama3.2">
+                <div class="model-quick-chips">
+                  <span class="quick-chip" data-target="setting-ollama-model" data-val="llama3.2">llama3.2</span>
+                  <span class="quick-chip" data-target="setting-ollama-model" data-val="qwen2.5-coder">qwen2.5-coder</span>
+                  <span class="quick-chip" data-target="setting-ollama-model" data-val="mistral">mistral</span>
+                  <span class="quick-chip" data-target="setting-ollama-model" data-val="deepseek-r1:8b">deepseek-r1:8b</span>
+                </div>
+              </div>
+
+              <div class="key-action-row">
+                <button type="button" id="validate-ollama-btn" class="validate-key-btn test-connection-btn" data-provider="ollama">
+                  <svg class="btn-test-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M2 8a6 6 0 1 1 12 0A6 6 0 0 1 2 8z"></path>
+                    <path d="M8 5v3l2 2"></path>
+                  </svg>
+                  <span>Test Connection</span>
+                </button>
+                <span id="ollama-validation-pill" class="validation-pill hidden"></span>
+              </div>
+
+              <!-- Interactive Help Tooltip Card -->
+              <div id="ollama-tooltip" class="help-tooltip-card hidden">
+                <div class="tooltip-header">
+                  <span class="tooltip-title">How to use Ollama Local Models</span>
+                  <span class="tooltip-cost-tag">100% Free & Offline</span>
+                </div>
+                <ol class="tooltip-steps">
+                  <li>Install Ollama from <strong>ollama.com</strong> for Windows.</li>
+                  <li>In your terminal, pull a model: <code>ollama pull llama3.2</code>.</li>
+                  <li>Ensure the Ollama process is running in the background on <code>localhost:11434</code>. No API key needed!</li>
+                </ol>
+                <div class="tooltip-footer">
+                  <button type="button" class="open-external-btn" data-url="https://ollama.com">
+                    <span>Visit Ollama Website ↗</span>
+                  </button>
+                  <span class="tooltip-hint">Opens ollama.com</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 7. Custom / Other Panel -->
+            <div id="tab-custom" class="settings-tab-panel">
+              <div class="active-engine-bar">
+                <div class="engine-bar-left">
+                  <span class="engine-indicator-dot" id="dot-custom"></span>
+                  <div>
+                    <div class="engine-title">Custom OpenAI-Compatible Endpoint</div>
+                    <div class="engine-desc">Connect OpenRouter, Together, LM Studio, vLLM, or DeepSeek</div>
+                  </div>
+                </div>
+                <button type="button" class="use-as-engine-btn" data-provider="custom" id="use-custom-btn">
+                  <svg class="btn-check-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+                  <span class="btn-engine-text">Set as Active Engine</span>
+                </button>
+              </div>
+
+              <!-- Base URL -->
+              <div class="settings-field">
+                <div class="label-row">
+                  <div class="label-with-help">
+                    <label for="setting-custom-base-url">API Base URL</label>
+                    <button type="button" class="help-question-btn" data-tooltip="custom-tooltip" title="How to configure custom endpoints?">?</button>
+                  </div>
+                  <span class="label-tag">OpenAI Compatible</span>
+                </div>
+                <input type="text" id="setting-custom-base-url" class="settings-input" placeholder="https://openrouter.ai/api/v1">
+              </div>
+
+              <!-- Model Name -->
+              <div class="settings-field">
+                <label for="setting-custom-model">Custom Model Slug</label>
+                <input type="text" id="setting-custom-model" class="settings-input" placeholder="deepseek/deepseek-r1">
+                <div class="model-quick-chips">
+                  <span class="quick-chip" data-target="setting-custom-model" data-val="deepseek/deepseek-r1">deepseek-r1</span>
+                  <span class="quick-chip" data-target="setting-custom-model" data-val="meta-llama/llama-3.3-70b-instruct">llama-3.3-70b</span>
+                  <span class="quick-chip" data-target="setting-custom-model" data-val="anthropic/claude-3.5-sonnet">claude-3.5-sonnet</span>
+                </div>
+              </div>
+
+              <!-- API Key -->
+              <div class="settings-field">
+                <label for="setting-custom-key">API Key (Optional for local LM Studio / vLLM)</label>
+                <div class="password-input-wrap">
+                  <input type="password" id="setting-custom-key" class="settings-input" placeholder="sk-or-v1-..." autocomplete="off">
+                  <button type="button" class="toggle-visibility-btn" data-target="setting-custom-key" title="Toggle visibility"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+                </div>
+              </div>
+
+              <div class="key-action-row">
+                <button type="button" id="validate-custom-btn" class="validate-key-btn test-connection-btn" data-provider="custom">
+                  <svg class="btn-test-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M2 8a6 6 0 1 1 12 0A6 6 0 0 1 2 8z"></path>
+                    <path d="M8 5v3l2 2"></path>
+                  </svg>
+                  <span>Test Connection</span>
+                </button>
+                <span id="custom-validation-pill" class="validation-pill hidden"></span>
+              </div>
+
+              <!-- Interactive Help Tooltip Card -->
+              <div id="custom-tooltip" class="help-tooltip-card hidden">
+                <div class="tooltip-header">
+                  <span class="tooltip-title">Configuring Custom OpenAI Endpoints</span>
+                  <span class="tooltip-cost-tag">Universal Proxy</span>
+                </div>
+                <ol class="tooltip-steps">
+                  <li>Works with <strong>OpenRouter, DeepSeek, Together, LM Studio, LocalAI</strong>.</li>
+                  <li>Enter the full URL ending in <code>/v1</code> (e.g. <code>http://localhost:1234/v1</code>).</li>
+                  <li>Paste your provider's API key if authentication is required.</li>
+                </ol>
+                <div class="tooltip-footer">
+                  <button type="button" class="open-external-btn" data-url="https://openrouter.ai/keys">
+                    <span>OpenRouter Console ↗</span>
+                  </button>
+                  <span class="tooltip-hint">Opens openrouter.ai</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hub Footer -->
+        <div class="settings-hub-footer">
+          <div class="footer-left-status">
+            <span class="active-engine-chip" id="footer-active-engine-chip">Active Brain: Groq Llama 3.3 70B</span>
+            <span id="settings-save-feedback" class="save-feedback"></span>
+          </div>
+          <div class="footer-right-actions">
+            <button type="button" id="cancel-settings-btn" class="secondary-btn">Close</button>
+            <button type="button" id="save-settings-btn" class="primary-save-btn">Save & Apply Preferences</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Token Architecture Teaser Card -->
+    <div id="token-teaser-card" class="token-teaser-card hidden" role="complementary" aria-label="Feature Preview">
+      <div class="teaser-card-glow"></div>
+      <div class="teaser-card-header">
+        <div class="teaser-header-left">
+          <span class="teaser-pulse-dot" aria-hidden="true"></span>
+          <span class="teaser-badge">COMING SOON</span>
+        </div>
+        <button type="button" id="close-teaser-btn" class="teaser-close-btn" aria-label="Dismiss Teaser" title="Dismiss">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <line x1="4" y1="4" x2="12" y2="12"></line>
+            <line x1="12" y1="4" x2="4" y2="12"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="teaser-card-body">
+        <h4 class="teaser-title">Token Architecture &amp; Quota Planner</h4>
+        <p class="teaser-description">Pre-flight context compression and free-tier feasibility engine calibrated for ChatGPT &amp; Google Gemini.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

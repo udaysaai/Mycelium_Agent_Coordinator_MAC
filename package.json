@@ -1,0 +1,11 @@
+{
+  "name": "mycelium-agent-coordinator",
+  "version": "1.0.0",
+  "description": "US Neural - Mycelium Agent Coordinator (MAC)",
+  "scripts": {
+    "start": "npm start --prefix mycelium_desktop",
+    "dist": "npm run dist --prefix mycelium_desktop"
+  },
+  "author": "US Neural Systems Architecture",
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,44 @@
+{
+  "name": "mycelium-desktop",
+  "version": "1.0.0",
+  "description": "US Neural - Mycelium Agent Coordinator (MAC) Desktop Application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "keywords": [
+    "mycelium",
+    "agent-coordinator",
+    "hol-guard",
+    "desktop-app",
+    "split-execution"
+  ],
+  "author": "US Neural Systems Architecture",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "ai.usneural.mycelium",
+    "productName": "Mycelium Studio",
+    "copyright": "Copyright © 2026 US Neural",
+    "directories": {
+      "output": "dist-installer"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Mycelium Studio"
+    }
+  }
+}

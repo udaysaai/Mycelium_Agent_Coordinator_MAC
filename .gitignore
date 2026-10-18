@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+package-lock.json.backup
+
+# Production Builds & Installers
+dist/
+dist-installer/
+out/
+build/
+
+# Python & Test Caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.log
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
