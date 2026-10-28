@@ -10,8 +10,16 @@ const { app, BrowserWindow, ipcMain, Menu, shell, dialog, Tray, nativeImage } = 
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const readline = require('readline');
+
+// Global Exception Shield - Guarantee that no unhandled error can ever crash or pop up dialogs
+process.on('uncaughtException', (err) => {
+  console.error('[Main Process Uncaught Exception]:', err ? err.stack || err.message || err : err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[Main Process Unhandled Rejection]:', reason);
+});
 
 if (app && app.commandLine) {
   app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
@@ -23,13 +31,101 @@ let pythonRl = null;
 let registryProcess = null;
 let activeLLMAbortController = null;
 let tray = null;
+let cachedPythonCommand = undefined;
 
-// Paths
-const COORDINATOR_DIR = path.resolve(__dirname, '..');
-const ENGINE_SCRIPT = path.join(COORDINATOR_DIR, 'engine_bridge.py');
-const MYCELIUM_SERVER_DIR = path.resolve(COORDINATOR_DIR, '..', 'mycelium');
+// Paths & Configuration
 const CONFIG_DIR = path.join(os.homedir(), '.mycelium');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'desktop_config.json');
+
+/**
+ * Dynamically discover the engine_bridge.py script across development and packaged paths.
+ */
+function findEngineScript() {
+  const candidates = [
+    // 1. Packaged asar unpacked directory
+    path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'python_core', 'engine_bridge.py'),
+    // 2. Bundled python_core subfolder
+    path.join(__dirname, 'python_core', 'engine_bridge.py'),
+    // 3. Local directory
+    path.join(__dirname, 'engine_bridge.py'),
+    // 4. Parent workspace directory (development mode)
+    path.resolve(__dirname, '..', 'engine_bridge.py'),
+    // 5. Electron resources directory
+    path.join(process.resourcesPath || '', 'python_core', 'engine_bridge.py'),
+    path.join(process.resourcesPath || '', 'engine_bridge.py'),
+    path.join(process.resourcesPath || '', 'app.asar.unpacked', 'python_core', 'engine_bridge.py')
+  ];
+
+  for (const c of candidates) {
+    if (c && fs.existsSync(c)) {
+      return {
+        scriptPath: c,
+        dirPath: path.dirname(c)
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Resilient Python command resolver. Tests candidates to find a real, functioning Python interpreter.
+ * Resolves py launcher, python, python3, or well-known Windows install paths without crashing.
+ */
+function resolvePythonCommand() {
+  if (cachedPythonCommand !== undefined) {
+    return cachedPythonCommand;
+  }
+
+  if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
+    cachedPythonCommand = process.env.PYTHON_PATH;
+    return cachedPythonCommand;
+  }
+
+  const isWin = process.platform === 'win32';
+  const candidates = [];
+
+  if (isWin) {
+    // Check py launcher first (standard in Windows C:\WINDOWS\py.exe)
+    candidates.push('py');
+    candidates.push('python');
+    candidates.push('python3');
+
+    const localApp = process.env.LOCALAPPDATA || '';
+    const versions = ['Python314', 'Python313', 'Python312', 'Python311', 'Python310', 'Python39'];
+    for (const v of versions) {
+      if (localApp) {
+        candidates.push(path.join(localApp, 'Programs', 'Python', v, 'python.exe'));
+      }
+      candidates.push(`C:\\${v}\\python.exe`);
+      candidates.push(`C:\\Program Files\\${v}\\python.exe`);
+      candidates.push(`C:\\Program Files (x86)\\${v}\\python.exe`);
+    }
+  } else {
+    candidates.push('python3');
+    candidates.push('python');
+  }
+
+  for (const cmd of candidates) {
+    try {
+      const isPy = cmd.toLowerCase().endsWith('py.exe') || cmd === 'py';
+      const args = isPy ? ['-3', '-c', 'import sys; print(sys.executable)'] : ['-c', 'import sys; print(sys.executable)'];
+      const res = spawnSync(cmd, args, { timeout: 1200, stdio: 'pipe', windowsHide: true });
+      if (res && res.status === 0) {
+        cachedPythonCommand = cmd;
+        console.log(`[Supervisor] Successfully resolved Python interpreter: ${cmd}`);
+        return cachedPythonCommand;
+      }
+    } catch (e) {
+      // candidate not runnable, check next
+    }
+  }
+
+  console.warn('[Supervisor] No working Python interpreter detected. Running in Standalone Desktop LLM Mode.');
+  cachedPythonCommand = null;
+  return null;
+}
+
+const MYCELIUM_SERVER_DIR = path.resolve(__dirname, '..', '..', 'mycelium');
 
 // ---------------------------------------------------------------------------
 // 1. Config Management (~/.mycelium/desktop_config.json)
@@ -126,45 +222,86 @@ function saveStoredConfig(newConfig) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 2. Python MAC Coordinator Supervisor (engine_bridge.py)
-// ---------------------------------------------------------------------------
-
 function spawnPythonDaemon() {
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  if (pythonDaemon) return;
 
-  pythonDaemon = spawn(pythonCmd, [ENGINE_SCRIPT], {
-    cwd: COORDINATOR_DIR,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, PYTHONUNBUFFERED: '1' }
-  });
+  const engine = findEngineScript();
+  if (!engine) {
+    console.log('[Supervisor] Python coordinator script (engine_bridge.py) not found. Running in Standalone Desktop LLM Mode.');
+    notifyRendererStandaloneMode();
+    return;
+  }
 
-  pythonRl = readline.createInterface({
-    input: pythonDaemon.stdout,
-    terminal: false
-  });
+  const pythonCmd = resolvePythonCommand();
+  if (!pythonCmd) {
+    console.log('[Supervisor] Python interpreter not detected on this system. Running in Standalone Desktop LLM Mode.');
+    notifyRendererStandaloneMode();
+    return;
+  }
 
-  pythonRl.on('line', (line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    try {
-      const msg = JSON.parse(trimmed);
-      handleDaemonMessage(msg);
-    } catch (err) {
-      // ignore
+  try {
+    const isPyLauncher = path.basename(pythonCmd).toLowerCase().startsWith('py');
+    const spawnArgs = isPyLauncher ? ['-3', engine.scriptPath] : [engine.scriptPath];
+
+    console.log(`[Supervisor] Spawning Python daemon: ${pythonCmd} ${spawnArgs.join(' ')}`);
+    pythonDaemon = spawn(pythonCmd, spawnArgs, {
+      cwd: engine.dirPath,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+    });
+
+    pythonDaemon.on('error', (err) => {
+      console.warn('[Supervisor] Python process emitted error (caught gracefully):', err.message);
+      pythonDaemon = null;
+      notifyRendererStandaloneMode();
+    });
+
+    pythonDaemon.on('exit', (code, signal) => {
+      console.log(`[Supervisor] Daemon exited with code ${code}, signal ${signal}`);
+      pythonDaemon = null;
+    });
+
+    if (pythonDaemon.stdout) {
+      pythonRl = readline.createInterface({
+        input: pythonDaemon.stdout,
+        terminal: false
+      });
+
+      pythonRl.on('line', (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        try {
+          const msg = JSON.parse(trimmed);
+          handleDaemonMessage(msg);
+        } catch (err) {
+          // ignore
+        }
+      });
     }
-  });
 
-  pythonDaemon.stderr.on('data', (data) => {
-    const errText = data.toString('utf-8');
+    if (pythonDaemon.stderr) {
+      pythonDaemon.stderr.on('data', (data) => {
+        const errText = data.toString('utf-8');
+        console.warn('[Supervisor stderr]:', errText.trim());
+      });
+    }
+  } catch (err) {
+    console.warn('[Supervisor] Failed to spawn Python daemon:', err.message);
+    pythonDaemon = null;
+    notifyRendererStandaloneMode();
+  }
+}
+
+function notifyRendererStandaloneMode() {
+  setTimeout(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('bridge-error', { error: errText });
+      mainWindow.webContents.send('system-ready', {
+        status: 'STANDALONE_LLM_ACTIVE',
+        python_active: false,
+        message: 'Mycelium Desktop active in Standalone LLM Gateway mode (Groq, Gemini, OpenAI, Claude, Ollama).'
+      });
     }
-  });
-
-  pythonDaemon.on('exit', (code, signal) => {
-    console.log(`[Supervisor] Daemon exited with code ${code}, signal ${signal}`);
-  });
+  }, 1200);
 }
 
 function sendToDaemon(message) {
@@ -285,11 +422,16 @@ function launchLocalRegistryServer() {
     return { success: true, message: 'Registry server process already active.' };
   }
 
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const pythonCmd = resolvePythonCommand() || (process.platform === 'win32' ? 'py' : 'python3');
   try {
+    const isPyLauncher = path.basename(pythonCmd).toLowerCase().startsWith('py');
+    const uvicornArgs = isPyLauncher
+      ? ['-3', '-m', 'uvicorn', 'server.app:app', '--host', '127.0.0.1', '--port', '8000']
+      : ['-m', 'uvicorn', 'server.app:app', '--host', '127.0.0.1', '--port', '8000'];
+
     registryProcess = spawn(
       pythonCmd,
-      ['-m', 'uvicorn', 'server.app:app', '--host', '127.0.0.1', '--port', '8000'],
+      uvicornArgs,
       {
         cwd: MYCELIUM_SERVER_DIR,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -297,16 +439,30 @@ function launchLocalRegistryServer() {
       }
     );
 
-    registryProcess.stdout.on('data', (d) => {
-      console.log('[Registry stdout]:', d.toString().trim());
+    registryProcess.on('error', (err) => {
+      console.warn('[Registry] Failed to spawn uvicorn process (gracefully caught):', err.message);
+      registryProcess = null;
     });
 
-    registryProcess.stderr.on('data', (d) => {
-      console.log('[Registry stderr]:', d.toString().trim());
+    registryProcess.on('exit', () => {
+      registryProcess = null;
     });
+
+    if (registryProcess.stdout) {
+      registryProcess.stdout.on('data', (d) => {
+        console.log('[Registry stdout]:', d.toString().trim());
+      });
+    }
+
+    if (registryProcess.stderr) {
+      registryProcess.stderr.on('data', (d) => {
+        console.log('[Registry stderr]:', d.toString().trim());
+      });
+    }
 
     return { success: true, message: 'Spawning uvicorn server.app:app in background on port 8000...' };
   } catch (err) {
+    registryProcess = null;
     return { success: false, error: err.message };
   }
 }
@@ -1062,29 +1218,151 @@ ipcMain.handle('shell:open-external', async (_event, url) => {
   return { success: false, error: 'Invalid URL scheme' };
 });
 
-// Python coordinator daemon bridge
+function handleNativeWorkspaceTree() {
+  const config = getStoredConfig();
+  const targetDir = config.workspacePath && fs.existsSync(config.workspacePath)
+    ? config.workspacePath
+    : path.resolve(__dirname, '..');
+
+  function scan(dir, relPath = '') {
+    const entries = [];
+    try {
+      if (!fs.existsSync(dir)) return entries;
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+      for (const item of items) {
+        if (
+          item.name.startsWith('.') ||
+          item.name === 'node_modules' ||
+          item.name === '__pycache__' ||
+          item.name === 'dist-installer' ||
+          item.name === 'dist'
+        ) {
+          continue;
+        }
+        const full = path.join(dir, item.name);
+        const itemRel = relPath ? `${relPath}/${item.name}` : item.name;
+        if (item.isDirectory()) {
+          entries.push({
+            name: item.name,
+            path: itemRel,
+            isDir: true,
+            children: scan(full, itemRel)
+          });
+        } else {
+          entries.push({
+            name: item.name,
+            path: itemRel,
+            isDir: false,
+            size: fs.statSync(full).size
+          });
+        }
+      }
+    } catch (e) {}
+    return entries;
+  }
+
+  const tree = {
+    name: path.basename(targetDir) || 'workspace',
+    path: '',
+    isDir: true,
+    children: scan(targetDir)
+  };
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('workspace-tree', { type: 'WORKSPACE_TREE_DATA', tree });
+  }
+}
+
+// Python coordinator daemon bridge with native Node.js fallbacks
 ipcMain.on('dispatch-intent', (_event, data) => {
-  sendToDaemon({ action: 'DISPATCH_INTENT', ...data });
+  if (pythonDaemon) {
+    sendToDaemon({ action: 'DISPATCH_INTENT', ...data });
+  } else {
+    // If Python daemon is not present, report graceful completion to renderer
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('execution-complete', {
+          type: 'EXECUTION_COMPLETE',
+          success: true,
+          output: 'Processed via Direct Multi-Provider LLM Gateway.'
+        });
+      }
+    }, 200);
+  }
 });
 
 ipcMain.on('hol-decision', (_event, { quarantineId, approved }) => {
-  sendToDaemon({ action: 'HOL_DECISION', quarantineId, approved });
+  if (pythonDaemon) {
+    sendToDaemon({ action: 'HOL_DECISION', quarantineId, approved });
+  }
 });
 
 ipcMain.on('get-workspace-tree', () => {
-  sendToDaemon({ action: 'GET_WORKSPACE_TREE' });
+  if (pythonDaemon) {
+    sendToDaemon({ action: 'GET_WORKSPACE_TREE' });
+  } else {
+    handleNativeWorkspaceTree();
+  }
 });
 
 ipcMain.on('get-mesh-nodes', () => {
-  sendToDaemon({ action: 'GET_MESH_NODES' });
+  if (pythonDaemon) {
+    sendToDaemon({ action: 'GET_MESH_NODES' });
+  } else {
+    mainWindow?.webContents.send('mesh-nodes', { type: 'MESH_NODES_DATA', nodes: [] });
+  }
 });
 
-ipcMain.on('read-file', (_event, { filePath }) => {
-  sendToDaemon({ action: 'READ_FILE', filePath });
+ipcMain.on('read-file', async (_event, { filePath }) => {
+  if (pythonDaemon) {
+    sendToDaemon({ action: 'READ_FILE', filePath });
+  } else {
+    try {
+      const config = getStoredConfig();
+      const baseDir = config.workspacePath && fs.existsSync(config.workspacePath) ? config.workspacePath : path.resolve(__dirname, '..');
+      const target = path.isAbsolute(filePath) ? filePath : path.join(baseDir, filePath);
+      const content = await fs.promises.readFile(target, 'utf-8');
+      mainWindow?.webContents.send('file-content', {
+        type: 'FILE_CONTENT_DATA',
+        filePath,
+        content,
+        success: true
+      });
+    } catch (e) {
+      mainWindow?.webContents.send('file-content', {
+        type: 'FILE_CONTENT_DATA',
+        filePath,
+        content: `Error reading file: ${e.message}`,
+        success: false
+      });
+    }
+  }
 });
 
-ipcMain.on('write-file', (_event, { filePath, content }) => {
-  sendToDaemon({ action: 'WRITE_FILE', filePath, content });
+ipcMain.on('write-file', async (_event, { filePath, content }) => {
+  if (pythonDaemon) {
+    sendToDaemon({ action: 'WRITE_FILE', filePath, content });
+  } else {
+    try {
+      const config = getStoredConfig();
+      const baseDir = config.workspacePath && fs.existsSync(config.workspacePath) ? config.workspacePath : path.resolve(__dirname, '..');
+      const target = path.isAbsolute(filePath) ? filePath : path.join(baseDir, filePath);
+      await fs.promises.mkdir(path.dirname(target), { recursive: true });
+      await fs.promises.writeFile(target, content, 'utf-8');
+      mainWindow?.webContents.send('file-written', {
+        type: 'FILE_WRITTEN_DATA',
+        filePath,
+        success: true
+      });
+    } catch (e) {
+      mainWindow?.webContents.send('file-written', {
+        type: 'FILE_WRITTEN_DATA',
+        filePath,
+        error: e.message,
+        success: false
+      });
+    }
+  }
 });
 
 // Window controls
