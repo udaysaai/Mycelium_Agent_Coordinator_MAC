@@ -43,8 +43,8 @@
       <div class="titlebar-actions">
         <!-- Live Registry Network Badge -->
         <div id="nodes-active-badge" class="network-badge" title="Inspect Active Mesh Nodes & Capabilities (/mesh)">
-          <span class="mesh-ping-dot" id="registry-ping-dot"></span>
-          <span id="registry-badge-text">CONNECTING REGISTRY...</span>
+          <span class="mesh-ping-dot" id="registry-ping-dot" style="background: #00ff9d;"></span>
+          <span id="registry-badge-text">• AUTONOMOUS ENGINE • READY</span>
         </div>
 
         <!-- Terminal Toggle -->
@@ -101,10 +101,10 @@
               <span class="status-pulse-ring" id="footer-pulse-ring"></span>
             </div>
             <div class="mesh-footer-text">
-              <span class="mesh-status-text" id="footer-status-text">Vector-Mesh Active</span>
+              <span class="mesh-status-text" id="footer-status-text">Autonomous Engine Active</span>
               <span class="mesh-status-sub" id="footer-provider-text">Groq LLM Gateway</span>
             </div>
-            <span class="mesh-latency-pill" id="footer-latency-pill">--</span>
+            <span class="mesh-latency-pill" id="footer-latency-pill" style="color: #00ff9d;">READY</span>
           </div>
         </div>
       </aside>
@@ -114,7 +114,7 @@
         <!-- Interactive Stream Feed -->
         <div id="stream-feed" class="stream-feed">
           <!-- In-Stream Registry Offline Banner -->
-          <div id="registry-alert-banner" class="registry-alert-card hidden">
+          <div id="registry-alert-banner" class="registry-alert-card hidden" style="display: none;">
             <div class="alert-icon">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"></circle>

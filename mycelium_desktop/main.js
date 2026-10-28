@@ -422,7 +422,11 @@ function launchLocalRegistryServer() {
     return { success: true, message: 'Registry server process already active.' };
   }
 
-  const pythonCmd = resolvePythonCommand() || (process.platform === 'win32' ? 'py' : 'python3');
+  const venvPython = path.join(MYCELIUM_SERVER_DIR, '.venv', 'Scripts', 'python.exe');
+  const pythonCmd = fs.existsSync(venvPython)
+    ? venvPython
+    : (resolvePythonCommand() || (process.platform === 'win32' ? 'py' : 'python3'));
+
   try {
     const isPyLauncher = path.basename(pythonCmd).toLowerCase().startsWith('py');
     const uvicornArgs = isPyLauncher
@@ -1078,6 +1082,16 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    handleNativeWorkspaceTree();
+    const effectivePath = getEffectiveWorkspacePath();
+    mainWindow.webContents.send('system-ready', {
+      type: 'SYSTEM_READY',
+      version: '1.0.0',
+      workspace: effectivePath
+    });
+  });
+
   mainWindow.on('close', (event) => {
     const config = getStoredConfig();
     if (config.minimizeToTray && !app.isQuitting) {
@@ -1218,11 +1232,16 @@ ipcMain.handle('shell:open-external', async (_event, url) => {
   return { success: false, error: 'Invalid URL scheme' };
 });
 
-function handleNativeWorkspaceTree() {
+function getEffectiveWorkspacePath() {
   const config = getStoredConfig();
-  const targetDir = config.workspacePath && fs.existsSync(config.workspacePath)
-    ? config.workspacePath
-    : path.resolve(__dirname, '..');
+  if (config.workspacePath && fs.existsSync(config.workspacePath)) {
+    return config.workspacePath;
+  }
+  return path.resolve(__dirname, '..');
+}
+
+function handleNativeWorkspaceTree() {
+  const targetDir = getEffectiveWorkspacePath();
 
   function scan(dir, relPath = '') {
     const entries = [];
@@ -1234,8 +1253,11 @@ function handleNativeWorkspaceTree() {
           item.name.startsWith('.') ||
           item.name === 'node_modules' ||
           item.name === '__pycache__' ||
+          item.name === '.pytest_cache' ||
           item.name === 'dist-installer' ||
-          item.name === 'dist'
+          item.name === 'dist' ||
+          item.name === 'mycelium_desktop' ||
+          item.name === '.venv'
         ) {
           continue;
         }
@@ -1258,7 +1280,11 @@ function handleNativeWorkspaceTree() {
         }
       }
     } catch (e) {}
-    return entries;
+    return entries.sort((a, b) => {
+      if (a.isDir && !b.isDir) return -1;
+      if (!a.isDir && b.isDir) return 1;
+      return a.name.localeCompare(b.name);
+    });
   }
 
   const tree = {
@@ -1298,10 +1324,9 @@ ipcMain.on('hol-decision', (_event, { quarantineId, approved }) => {
 });
 
 ipcMain.on('get-workspace-tree', () => {
+  handleNativeWorkspaceTree();
   if (pythonDaemon) {
     sendToDaemon({ action: 'GET_WORKSPACE_TREE' });
-  } else {
-    handleNativeWorkspaceTree();
   }
 });
 
