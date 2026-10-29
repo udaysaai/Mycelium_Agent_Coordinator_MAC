@@ -48,7 +48,7 @@ class SemanticVectorMesh:
         tokens = [tok for tok in clean.split() if tok]
         features = list(tokens)
 
-        # Generate character 3-grams for robustness against typos and inflections
+        # Generate character 3-grams for matching typos and inflections
         for tok in tokens:
             if len(tok) >= 3:
                 for i in range(len(tok) - 2):

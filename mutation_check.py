@@ -163,7 +163,7 @@ def main() -> int:
     print(f"Total Mutations: {len(MUTATIONS)} | Killed: {len(MUTATIONS) - survived_count} | Survived: {survived_count}")
 
     if survived_count == 0:
-        print("\n[SUCCESS] 100% of verifier mutations were KILLED. Verifier is robust!")
+        print(f"\n[SUMMARY] All {len(MUTATIONS)} defined mutations were KILLED.")
         return 0
     else:
         print(f"\n[FAILURE] {survived_count} mutation(s) survived! Add tests to kill them.")
