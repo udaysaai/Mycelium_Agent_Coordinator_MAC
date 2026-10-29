@@ -1,5 +1,6 @@
 # scripts/fresh_clone_check.ps1
-# Phase 0.6 Reproducible Fresh-Clone Verification Script
+# Phase 0.7 Reproducible Fresh-Clone Verification Script
+# Writes un-truncated UTF-8 output directly at capture time.
 
 $ErrorActionPreference = "Stop"
 
@@ -25,6 +26,14 @@ try {
         throw "git clone failed with exit code $LASTEXITCODE"
     }
 
+    $commitHash = ""
+    Push-Location $cloneDir
+    try {
+        $commitHash = (git rev-parse HEAD).Trim()
+    } finally {
+        Pop-Location
+    }
+
     $venvDir = Join-Path $tempDir "venv"
     Write-Host "[3/6] Creating fresh virtual environment at $venvDir..."
     python -m venv $venvDir
@@ -42,15 +51,37 @@ try {
         throw "pip install failed with exit code $LASTEXITCODE"
     }
 
-    Write-Host "[5/6] Environment details:"
-    & $pythonExe --version
-    & $pipExe freeze
+    Write-Host "[5/6] Capturing environment metadata..."
+    $pyVer = (& $pythonExe --version 2>&1).Trim()
+    $pipList = (& $pipExe freeze 2>&1) -join "`n"
 
-    Write-Host "[6/6] Executing pytest -v -rs and writing raw output to $evidenceFile..."
+    $header = @"
+================================================================================
+MAC FRESH CLONE VERIFICATION RUN (Phase 0.7)
+Commit: $commitHash
+Python: $pyVer
+Capture Time: $(Get-Date -Format 'yyyy-MM-ddTHH:mm:sszzz')
+Encoding: UTF-8 (Direct Capture)
+================================================================================
+
+--- PIP FREEZE ---
+$pipList
+
+--- PYTEST EXECUTION ---
+"@
+
+    # Initialize evidence file with UTF-8 encoding
+    [System.IO.File]::WriteAllText($evidenceFile, ($header + "`n`n"), [System.Text.Encoding]::UTF8)
+
+    Write-Host "[6/6] Executing pytest -v -rs and streaming raw UTF-8 output to $evidenceFile..."
     Push-Location $cloneDir
     try {
-        & $pythonExe -m pytest -v -rs *>&1 | Tee-Object -FilePath $evidenceFile
+        # Execute pytest and append output in UTF-8
+        $pytestOutput = & $pythonExe -m pytest -v -rs *>&1
         $testExitCode = $LASTEXITCODE
+        $pytestText = $pytestOutput -join "`r`n"
+        [System.IO.File]::AppendAllText($evidenceFile, ($pytestText + "`r`n`nExit Code: $testExitCode`r`n"), [System.Text.Encoding]::UTF8)
+        Write-Host $pytestText
     } finally {
         Pop-Location
     }
