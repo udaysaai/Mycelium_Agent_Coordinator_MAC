@@ -29,3 +29,6 @@ data/*.db-shm
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Scratch scripts
+scratch/

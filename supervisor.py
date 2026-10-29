@@ -211,6 +211,33 @@ class SupervisorDaemon:
             logger.warning(f"Failed to assign worker {proc.pid} to Job Object: {e}")
         return False
 
+    def _ensure_low_integrity_winsta_desktop(self) -> None:
+        if sys.platform != "win32":
+            return
+        try:
+            import win32api, win32security, win32service
+            low_sid = win32security.ConvertStringSidToSid("S-1-16-4096")
+            hwinsta = win32service.GetProcessWindowStation()
+            sd_winsta = win32security.GetUserObjectSecurity(hwinsta, win32security.DACL_SECURITY_INFORMATION)
+            dacl_winsta = sd_winsta.GetSecurityDescriptorDacl()
+            if dacl_winsta:
+                dacl_winsta.AddAccessAllowedAce(win32security.ACL_REVISION, 0xF037F, low_sid)
+                sd_winsta.SetSecurityDescriptorDacl(1, dacl_winsta, 0)
+                win32security.SetUserObjectSecurity(hwinsta, win32security.DACL_SECURITY_INFORMATION, sd_winsta)
+
+            hdesk = win32service.GetThreadDesktop(win32api.GetCurrentThreadId())
+            sd_desk = win32security.GetUserObjectSecurity(hdesk, win32security.DACL_SECURITY_INFORMATION | win32security.LABEL_SECURITY_INFORMATION)
+            dacl_desk = sd_desk.GetSecurityDescriptorDacl()
+            if dacl_desk:
+                dacl_desk.AddAccessAllowedAce(win32security.ACL_REVISION, 0xF01FF, low_sid)
+                sd_desk.SetSecurityDescriptorDacl(1, dacl_desk, 0)
+            sacl = win32security.ACL()
+            sacl.AddMandatoryAce(win32security.ACL_REVISION, 0, win32security.SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, low_sid)
+            sd_desk.SetSecurityDescriptorSacl(1, sacl, 0)
+            win32security.SetUserObjectSecurity(hdesk, win32security.DACL_SECURITY_INFORMATION | win32security.LABEL_SECURITY_INFORMATION, sd_desk)
+        except Exception:
+            pass
+
     def spawn_worker_process(self, script_body: str) -> Dict[str, Any]:
         """
         Spawn a restricted worker process with dropped privileges and Low Integrity level.
@@ -231,6 +258,7 @@ class SupervisorDaemon:
 
         if sys.platform == "win32":
             try:
+                self._ensure_low_integrity_winsta_desktop()
                 import win32api
                 import win32con
                 import win32event
@@ -285,9 +313,15 @@ class SupervisorDaemon:
                 startup.hStdOutput = h_out
                 startup.hStdError = h_out
 
-                cmd = f'"{sys.executable}" -u "{script_file}"'
+                worker_exe = sys.executable
+                repo_worker_py = Path(__file__).parent / "runtime" / "worker_python" / "python.exe"
+                if repo_worker_py.exists():
+                    worker_exe = str(repo_worker_py)
+
+                cmd = f'"{worker_exe}" -u "{script_file}"'
+                working_dir = str(repo_worker_py.parent) if repo_worker_py.exists() else str(self.workspace_root)
                 h_proc, h_thread, pid, tid = win32process.CreateProcessAsUser(
-                    rest_tok, None, cmd, None, None, True, 0, None, str(self.workspace_root), startup
+                    rest_tok, None, cmd, None, None, True, 0, None, working_dir, startup
                 )
 
                 # 5. Assign to Job Object
@@ -362,9 +396,37 @@ class SupervisorDaemon:
         """Access in-memory signing key for internal verification."""
         return self._signing_key
 
+    def _protect_process_dacl(self) -> None:
+        """Protect supervisor process object from being terminated by same-user worker processes."""
+        if sys.platform != "win32":
+            return
+        try:
+            import win32api, win32security, win32con
+            hp = win32api.GetCurrentProcess()
+            tok = win32security.OpenProcessToken(hp, win32security.TOKEN_QUERY)
+            user_sid, _ = win32security.GetTokenInformation(tok, win32security.TokenUser)
+            logon_sid = None
+            for s, a in win32security.GetTokenInformation(tok, win32security.TokenGroups):
+                if win32security.ConvertSidToStringSid(s).startswith("S-1-5-5-"):
+                    logon_sid = s
+                    break
+            dacl = win32security.ACL()
+            safe_mask = win32con.PROCESS_ALL_ACCESS & ~win32con.PROCESS_TERMINATE
+            dacl.AddAccessAllowedAce(win32security.ACL_REVISION, safe_mask, user_sid)
+            if logon_sid:
+                dacl.AddAccessAllowedAce(win32security.ACL_REVISION, 0x121410, logon_sid)
+            sd = win32security.SECURITY_DESCRIPTOR()
+            sd.SetSecurityDescriptorDacl(1, dacl, 0)
+            win32security.SetKernelObjectSecurity(hp, win32security.DACL_SECURITY_INFORMATION, sd)
+            logger.info("Supervisor process object DACL protected against PROCESS_TERMINATE.")
+        except Exception as e:
+            logger.debug(f"Process DACL protection note: {e}")
+
     def start(self) -> None:
         """Start Worker and UI IPC listener sockets."""
         self._running = True
+        if sys.platform == "win32":
+            self._protect_process_dacl()
 
         # 1. Bind Worker Channel Socket
         self.worker_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
