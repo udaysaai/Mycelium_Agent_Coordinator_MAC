@@ -1,0 +1,77 @@
+{
+  "metadata": {
+    "iterations_per_workflow": 20,
+    "total_runs": 40,
+    "timestamp": 1793255339.2102666,
+    "date": "2026-10-29 11:58:59"
+  },
+  "workflow_t1_sandboxed_write": {
+    "total": 20,
+    "success_count": 20,
+    "failure_count": 0,
+    "unverified_count": 0,
+    "success_rate_pct": 100.0,
+    "latencies_ms": {
+      "intake_stage": {
+        "mean": 0.069,
+        "median": 0.049,
+        "p95": 0.059,
+        "min": 0.029,
+        "max": 0.536
+      },
+      "policy_stage": {
+        "mean": 0.015,
+        "median": 0.016,
+        "p95": 0.022,
+        "min": 0.01,
+        "max": 0.022
+      },
+      "coordinator_dispatch": {
+        "mean": 13.699,
+        "median": 13.397,
+        "p95": 17.417,
+        "min": 9.688,
+        "max": 19.536
+      },
+      "end_to_end": {
+        "mean": 13.942,
+        "median": 13.556,
+        "p95": 17.699,
+        "min": 9.941,
+        "max": 19.785
+      }
+    },
+    "failures": []
+  },
+  "workflow_t2_quarantine_shell": {
+    "total": 20,
+    "success_count": 20,
+    "failure_count": 0,
+    "unverified_count": 0,
+    "success_rate_pct": 100.0,
+    "latencies_ms": {
+      "ui_channel_approval": {
+        "mean": 0.002,
+        "median": 0.002,
+        "p95": 0.003,
+        "min": 0.001,
+        "max": 0.004
+      },
+      "coordinator_dispatch": {
+        "mean": 299.122,
+        "median": 292.221,
+        "p95": 364.707,
+        "min": 257.213,
+        "max": 380.488
+      },
+      "end_to_end": {
+        "mean": 299.212,
+        "median": 292.337,
+        "p95": 364.766,
+        "min": 257.338,
+        "max": 380.567
+      }
+    },
+    "failures": []
+  }
+}
