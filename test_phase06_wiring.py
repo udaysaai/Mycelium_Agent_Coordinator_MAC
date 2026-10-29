@@ -112,3 +112,75 @@ def test_named_pipe_supervisor_support(tmp_path):
     finally:
         daemon.stop()
 
+
+# ============================================================================
+# F3: Approval Card Integrity & Confusable / Anomaly Flags (Part 2.5)
+# ============================================================================
+
+def test_approval_card_exact_content_never_truncated_and_flags_long():
+    """
+    Approval card must display the full literal text without truncation,
+    and flag very long strings (> 1000 chars) with length warnings.
+    """
+    from approval_card import inspect_approval_payload
+
+    long_cmd = "echo " + ("A" * 5000)
+    card = inspect_approval_payload(
+        tool_name="execute_shell_command",
+        payload={"command": long_cmd},
+        tier="T2",
+        call_hash="a1b2c3d4e5f67890"
+    )
+
+    # Must preserve full command without truncation
+    assert card["exact_command"] == long_cmd
+    assert len(card["exact_command"]) == 5005
+    assert card["flags"]["is_very_long"] is True
+    assert card["tier"] == "T2"
+    assert card["short_hash"] == "a1b2c3d4e5f6"
+    assert any("long" in w.lower() for w in card["warning_messages"])
+
+
+def test_approval_card_flags_newlines_and_control_characters():
+    """
+    Approval card must detect and visibly flag embedded newlines,
+    null bytes, and ANSI control characters.
+    """
+    from approval_card import inspect_approval_payload
+
+    tricky_cmd = "git status\necho evil\x00\x1b[31mPWNED\x1b[0m\r\n"
+    card = inspect_approval_payload(
+        tool_name="execute_shell_command",
+        payload={"command": tricky_cmd},
+        tier="T2",
+        call_hash="fedcba9876543210"
+    )
+
+    assert card["exact_command"] == tricky_cmd
+    assert card["flags"]["has_newlines"] is True
+    assert card["flags"]["has_control_chars"] is True
+    assert any("newline" in w.lower() for w in card["warning_messages"])
+    assert any("control" in w.lower() for w in card["warning_messages"])
+
+
+def test_approval_card_flags_confusables_and_non_ascii():
+    """
+    Approval card must flag homoglyphs/confusables (e.g. Cyrillic lookalikes),
+    zero-width spaces, and directional overrides.
+    """
+    from approval_card import inspect_approval_payload
+
+    # 'р' (U+0440 cyrillic) looks like 'p', zero-width space U+200B, RTL override U+202E
+    confusable_cmd = "рython\u200b -c \"print('hello')\"\u202e"
+    card = inspect_approval_payload(
+        tool_name="execute_shell_command",
+        payload={"command": confusable_cmd},
+        tier="T2",
+        call_hash="1122334455667788"
+    )
+
+    assert card["exact_command"] == confusable_cmd
+    assert card["flags"]["has_non_ascii_or_confusables"] is True
+    assert any("non-ascii" in w.lower() or "confusable" in w.lower() for w in card["warning_messages"])
+
+
