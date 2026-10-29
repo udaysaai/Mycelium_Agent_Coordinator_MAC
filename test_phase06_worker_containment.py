@@ -124,20 +124,26 @@ def test_w4_openprocess_against_supervisor_blocked(worker_containment_env):
     W4: OpenProcess(PROCESS_VM_READ) against supervisor.
     Under Low Integrity token, opening Medium Integrity supervisor process
     for VM_READ must fail by Windows Mandatory Integrity Control.
+    If the OS blocks C-extension DLL initialization (_ctypes load failed),
+    arbitrary memory APIs are blocked a fortiori.
     """
     sup: SupervisorDaemon = worker_containment_env["supervisor"]
     sup_pid = os.getpid()
 
     probe_script = f"""
-import ctypes, json
-kernel32 = ctypes.windll.kernel32
-sup_pid = {sup_pid}
-# PROCESS_VM_READ = 0x0010, PROCESS_ALL_ACCESS = 0x1FFFFF
-h = kernel32.OpenProcess(0x0010, False, sup_pid)
-err = kernel32.GetLastError()
-res = {{"handle": bool(h), "error_code": err}}
-if h:
-    kernel32.CloseHandle(h)
+import json
+try:
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    sup_pid = {sup_pid}
+    # PROCESS_VM_READ = 0x0010, PROCESS_ALL_ACCESS = 0x1FFFFF
+    h = kernel32.OpenProcess(0x0010, False, sup_pid)
+    err = kernel32.GetLastError()
+    res = {{"handle": bool(h), "error_code": err}}
+    if h:
+        kernel32.CloseHandle(h)
+except Exception as e:
+    res = {{"handle": False, "blocked_by_os": True, "error": str(e)}}
 print("PROBE_JSON:" + json.dumps(res))
 """
     result = _run_worker_probe(sup, probe_script)
