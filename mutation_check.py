@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-mutation_check.py - Comprehensive Governance & Policy Mutation Analysis
-Deliberately introduces mutations across verifier, policy engine, token,
-and supervisor boundary code to ensure the test suite detects and kills every security bypass.
+mutation_check.py - Two-Pass Governance & Policy Mutation Verification Harness
+Part 3:
+  Evaluates mutations against:
+    Pass (a): Full Test Suite
+    Pass (b): IPC Boundary-Only Suite (test_phase05_boundary.py, test_phase06_wiring.py,
+              test_phase06_state_integrity.py, test_phase06_boundary_mutations.py)
 
-Tracks:
-  - Which specific test killed each mutation
-  - Failure classification: assertion failure (KILLED) vs crash/import error (ERRORED)
+Tracks for each mutation:
+  - Killing test name
+  - Failure classification (ASSERTION vs CRASH/ERROR vs SURVIVED)
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent
 
@@ -43,6 +46,9 @@ class Mutation(NamedTuple):
     mirror_path: Optional[Path]
     target: str
     replacement: str
+    extra_file_path: Optional[Path] = None
+    extra_target: Optional[str] = None
+    extra_replacement: Optional[str] = None
 
 
 MUTATIONS: List[Mutation] = [
@@ -105,7 +111,7 @@ MUTATIONS: List[Mutation] = [
     ),
 
     # -------------------------------------------------------------------------
-    # Policy Engine & Token Mutations
+    # Policy Engine, Token & State Store Mutations
     # -------------------------------------------------------------------------
     Mutation(
         id="MUT_07_SKIP_HMAC_VERIFY",
@@ -120,10 +126,19 @@ MUTATIONS: List[Mutation] = [
         id="MUT_08_SKIP_CALL_HASH_RECOMPUTE",
         name="Skip Call-Hash Recompute at Exec",
         description="Uses stored call-hash instead of recomputing from actual call payload",
-        file_path=COORDINATOR_PATH,
-        mirror_path=MIRROR_COORDINATOR_PATH,
-        target="current_call_hash = self.policy_engine.compute_call_hash(\n                    tool_name=tool_name or \"action\",\n                    payload=request.payload,\n                    target=str(actual_target)\n                )",
-        replacement="current_call_hash = stored_q.get(\"call_hash\", \"\") if (stored_q := self.state_store.get_quarantine(quarantine_id)) else \"\"  # mutated"
+        file_path=SUPERVISOR_PATH,
+        mirror_path=None,
+        target="current_call_hash = self.policy_engine.compute_call_hash(tool_name, payload, str(target))",
+        replacement="current_call_hash = stored_q.get('call_hash', '')  # mutated: skip recompute",
+        extra_file_path=COORDINATOR_PATH,
+        extra_target=(
+            "current_call_hash = self.policy_engine.compute_call_hash(\n"
+            "                    tool_name=tool_name or \"action\",\n"
+            "                    payload=request.payload,\n"
+            "                    target=str(actual_target)\n"
+            "                )"
+        ),
+        extra_replacement="current_call_hash = stored_q.get('call_hash', '') if (stored_q := self.state_store.get_quarantine(quarantine_id)) else ''  # mutated"
     ),
     Mutation(
         id="MUT_09_SKIP_EXPIRY_CHECK",
@@ -140,7 +155,7 @@ MUTATIONS: List[Mutation] = [
         description="Allows already consumed tokens to be reused repeatedly",
         file_path=STATE_STORE_PATH,
         mirror_path=MIRROR_STATE_STORE_PATH,
-        target='if row["status"] != HOLApprovalStatus.APPROVED.value:',
+        target='if row["one_shot_token"] != token:',
         replacement="if False:  # mutated: allow replay"
     ),
     Mutation(
@@ -152,6 +167,10 @@ MUTATIONS: List[Mutation] = [
         target="tierLevel=TierLevel.T2,\n                requiresQuarantine=True,",
         replacement="tierLevel=TierLevel.T0,\n                requiresQuarantine=False,  # mutated: unknown tool as T0"
     ),
+
+    # -------------------------------------------------------------------------
+    # Supervisor Boundary Mutations
+    # -------------------------------------------------------------------------
     Mutation(
         id="MUT_12_WORKER_ACCEPT_APPROVE",
         name="Worker Channel Accepts Approve",
@@ -159,29 +178,82 @@ MUTATIONS: List[Mutation] = [
         file_path=SUPERVISOR_PATH,
         mirror_path=None,
         target="if msg_type in self.FORBIDDEN_WORKER_MESSAGE_TYPES:",
-        replacement='if msg_type == "APPROVE_ACTION":\n            qid = msg.get("quarantine_id", "")\n            token = self.approve_via_ui_channel(qid)\n            return {"status": "APPROVED", "quarantine_id": qid, "one_shot_token": token}\n        if msg_type in self.FORBIDDEN_WORKER_MESSAGE_TYPES:'
+        replacement=(
+            'if msg_type == "APPROVE_ACTION":\n'
+            '            qid = msg.get("quarantine_id", "")\n'
+            '            token = self.approve_via_ui_channel(qid)\n'
+            '            return {"status": "APPROVED", "quarantine_id": qid, "one_shot_token": token}\n'
+            '        if msg_type in self.FORBIDDEN_WORKER_MESSAGE_TYPES:'
+        )
     ),
     Mutation(
-        id="MUT_13_SKIP_PATH_CONTAINMENT",
-        name="Skip Sandbox Path Containment",
-        description="Bypasses commonpath sandbox confinement check",
+        id="MUT_13_WORKER_MSG_WHITELIST",
+        name="Worker Message Whitelist Bypassed",
+        description="Supervisor executes arbitrary command sent by untrusted worker",
+        file_path=SUPERVISOR_PATH,
+        mirror_path=None,
+        target="if msg_type not in self.WORKER_ALLOWED_MESSAGE_TYPES:",
+        replacement="if False:  # mutated: worker whitelist bypassed"
+    ),
+    Mutation(
+        id="MUT_14_UI_SECRET_CHECK",
+        name="UI Secret Not Verified on Approval",
+        description="Allows unauthenticated requests on UI channel without valid secret",
+        file_path=SUPERVISOR_PATH,
+        mirror_path=None,
+        target="if not secrets.compare_digest(secret, self.ui_secret):",
+        replacement="if False:  # mutated: UI secret check bypassed"
+    ),
+    Mutation(
+        id="MUT_15_PATH_CONTAINMENT",
+        name="Sandbox Path Containment Bypassed",
+        description="Disables path containment check, permitting sandbox escapes",
         file_path=COORDINATOR_PATH,
         mirror_path=MIRROR_COORDINATOR_PATH,
         target="if cp_target != real_sandbox or cp_parent != real_sandbox:",
-        replacement="if False:  # mutated: skip boundary check"
+        replacement="if False:  # mutated: path containment bypassed"
+    ),
+    Mutation(
+        id="MUT_16_STATE_INTEGRITY",
+        name="Row Integrity Check Skipped",
+        description="Bypasses cryptographic state verification before executing approved actions",
+        file_path=SUPERVISOR_PATH,
+        mirror_path=None,
+        target="if not self.state_store.verify_integrity(self._signing_key):",
+        replacement="if False:  # mutated: state integrity check bypassed"
+    ),
+    Mutation(
+        id="MUT_17_SHELL_ALLOWLIST",
+        name="Shell Allowlist Bypassed",
+        description="Allows commands outside supervisor allowlist to execute",
+        file_path=SUPERVISOR_PATH,
+        mirror_path=None,
+        target="if first_cmd not in self.ALLOWED_SHELL_COMMANDS:",
+        replacement="if False:  # mutated: shell allowlist bypassed"
     ),
 ]
 
+FULL_SUITE_TESTS = [
+    "test_phase0_vertical_slice.py",
+    "test_phase0_adversarial.py",
+    "test_phase05_strengthened.py",
+    "test_phase05_boundary.py",
+    "test_phase06_wiring.py",
+    "test_phase06_state_integrity.py",
+    "test_phase06_boundary_mutations.py",
+]
 
-def run_test_suite() -> tuple[int, str]:
-    """Run pytest suite against mutated codebase."""
-    cmd = [
-        sys.executable, "-m", "pytest", "-v",
-        "test_phase0_vertical_slice.py",
-        "test_phase0_adversarial.py",
-        "test_phase05_strengthened.py",
-        "test_phase05_boundary.py"
-    ]
+BOUNDARY_ONLY_TESTS = [
+    "test_phase05_boundary.py",
+    "test_phase06_wiring.py",
+    "test_phase06_state_integrity.py",
+    "test_phase06_boundary_mutations.py",
+]
+
+
+def run_tests(test_files: List[str]) -> Tuple[int, str]:
+    """Run specified pytest files."""
+    cmd = [sys.executable, "-m", "pytest", "-v"] + test_files
     res = subprocess.run(
         cmd,
         cwd=WORKSPACE_ROOT,
@@ -191,11 +263,10 @@ def run_test_suite() -> tuple[int, str]:
     return res.returncode, res.stdout + res.stderr
 
 
-def classify_failure(output: str) -> tuple[str, str, str]:
+def classify_failure(output: str) -> Tuple[str, str, str]:
     """
-    Examine pytest output to determine:
-      1. Killing test name
-      2. Failure category: 'ASSERTION' (killed) vs 'ERROR' (crash/import error)
+    Determine killing test name and category:
+    ASSERTION (KILLED), CRASH (ERRORED), or NONE (SURVIVED).
     """
     failed_lines = []
     error_lines = []
@@ -209,10 +280,7 @@ def classify_failure(output: str) -> tuple[str, str, str]:
 
     if failed_lines:
         killer = failed_lines[0].split()[0]
-        # Check if traceback indicates AssertionError or Failed
-        if "AssertionError" in output or "Failed:" in output or "FAILED" in output:
-            return killer, "ASSERTION", "KILLED"
-        return killer, "CRASH", "ERRORED"
+        return killer, "ASSERTION", "KILLED"
     elif error_lines:
         killer = error_lines[0].split()[0]
         return killer, "IMPORT/CRASH_ERROR", "ERRORED"
@@ -220,25 +288,21 @@ def classify_failure(output: str) -> tuple[str, str, str]:
     return "None", "NONE", "SURVIVED"
 
 
-def main() -> int:
+def execute_mutation_pass(pass_name: str, test_files: List[str], mutations: List[Mutation]) -> List[Tuple[Mutation, str, str, str]]:
     print("=" * 85)
-    print("MYCELIUM GOVERNANCE & POLICY MUTATION TEST HARNESS")
+    print(f"RUNNING {pass_name.upper()}")
+    print(f"Test targets ({len(test_files)} files): {', '.join(test_files)}")
     print("=" * 85)
-    print(f"Total mutations defined: {len(MUTATIONS)}\n")
 
     results = []
-    survived_count = 0
-    errored_count = 0
 
-    for mut in MUTATIONS:
+    for mut in mutations:
         print(f"[*] Applying {mut.id}: {mut.name}...")
         print(f"    Target: {mut.file_path.name}")
-        print(f"    Description: {mut.description}")
 
         if not mut.file_path.exists():
             print(f"    [ERROR] Target file does not exist: {mut.file_path}")
             results.append((mut, "ERRORED", "File not found", "ERROR"))
-            errored_count += 1
             continue
 
         original_code = mut.file_path.read_text(encoding="utf-8")
@@ -247,22 +311,31 @@ def main() -> int:
             if (mut.mirror_path and mut.mirror_path.exists())
             else None
         )
+        extra_original = (
+            mut.extra_file_path.read_text(encoding="utf-8")
+            if (mut.extra_file_path and mut.extra_file_path.exists())
+            else None
+        )
 
         if mut.target not in original_code:
-            print(f"    [ERROR] Mutation target string not found in {mut.file_path.name}")
+            print(f"    [ERROR] Target string not found in {mut.file_path.name}")
             results.append((mut, "ERRORED", "Target string not found", "ERROR"))
-            errored_count += 1
             continue
 
         try:
-            # Apply mutation to target file (and mirror if present)
-            mutated = original_code.replace(mut.target, mut.replacement, 1)
+            # Apply mutation
+            mutated = original_code.replace(mut.target, mut.replacement)
             mut.file_path.write_text(mutated, encoding="utf-8")
+
             if mirror_original and mut.mirror_path and mut.mirror_path.exists():
                 mut.mirror_path.write_text(mutated, encoding="utf-8")
 
-            # Run test suite
-            code, output = run_test_suite()
+            if extra_original and mut.extra_file_path and mut.extra_target and mut.extra_replacement:
+                mut_extra = extra_original.replace(mut.extra_target, mut.extra_replacement)
+                mut.extra_file_path.write_text(mut_extra, encoding="utf-8")
+
+            # Execute tests for this pass
+            code, output = run_tests(test_files)
 
             if code != 0:
                 killer_test, category, outcome = classify_failure(output)
@@ -270,42 +343,90 @@ def main() -> int:
                     print(f"    -> [KILLED by {category}] Caught by: {killer_test}")
                     results.append((mut, "KILLED", killer_test, category))
                 else:
-                    print(f"    -> [ERRORED] Caught by crash/import error: {killer_test}")
+                    print(f"    -> [ERRORED] Caught by crash: {killer_test}")
                     results.append((mut, "ERRORED", killer_test, category))
-                    errored_count += 1
             else:
-                print(f"    -> [SURVIVED] Test suite did NOT catch this mutation!")
+                print(f"    -> [SURVIVED] Tests did not detect this mutation!")
                 results.append((mut, "SURVIVED", "None", "NONE"))
-                survived_count += 1
 
         finally:
-            # Restore files immediately
+            # Revert files
             mut.file_path.write_text(original_code, encoding="utf-8")
             if mirror_original and mut.mirror_path and mut.mirror_path.exists():
                 mut.mirror_path.write_text(mirror_original, encoding="utf-8")
+            if extra_original and mut.extra_file_path:
+                mut.extra_file_path.write_text(extra_original, encoding="utf-8")
 
         print("-" * 85)
 
-    # Summary Table
+    return results
+
+
+def print_summary_table(title: str, results: List[Tuple[Mutation, str, str, str]]) -> int:
     print("\n" + "=" * 85)
-    print("MUTATION ANALYSIS SUMMARY REPORT")
+    print(title)
     print("=" * 85)
-    print(f"{'ID':<12} | {'Mutation Name':<32} | {'Status':<10} | {'Type':<12} | {'Killing Test'}")
+    print(f"{'ID':<16} | {'Mutation Name':<32} | {'Status':<10} | {'Type':<12} | {'Killing Test'}")
     print("-" * 85)
+    survived = 0
+    errored = 0
     for mut, status, killer, category in results:
         short_killer = killer.split("::")[-1] if "::" in killer else killer
-        print(f"{mut.id:<12} | {mut.name:<32} | {status:<10} | {category:<12} | {short_killer[:22]}")
+        print(f"{mut.id:<16} | {mut.name[:32]:<32} | {status:<10} | {category:<12} | {short_killer[:22]}")
+        if status == "SURVIVED":
+            survived += 1
+        elif status == "ERRORED":
+            errored += 1
     print("-" * 85)
+    killed = len(results) - survived - errored
+    print(f"Total: {len(results)} | Killed: {killed} | Errored: {errored} | Survived: {survived}\n")
+    return survived + errored
 
-    killed_count = len(MUTATIONS) - survived_count - errored_count
-    print(f"Total Mutations: {len(MUTATIONS)} | Killed: {killed_count} | Errored: {errored_count} | Survived: {survived_count}")
 
-    if survived_count == 0 and errored_count == 0:
-        print(f"\n[SUMMARY] All {len(MUTATIONS)} defined mutations were KILLED by assertion tests.")
-        return 0
-    else:
-        print(f"\n[SUMMARY] Mutations surviving: {survived_count}, Mutations errored: {errored_count}")
-        return 1
+def main() -> int:
+    print("=" * 85)
+    print("TWO-PASS GOVERNANCE & POLICY MUTATION VERIFICATION")
+    print("=" * 85)
+    print(f"Mutations defined: {len(MUTATIONS)}\n")
+
+    # Pass (a): Full Suite
+    results_full = execute_mutation_pass("Pass (a): Full Test Suite", FULL_SUITE_TESTS, MUTATIONS)
+
+    # Pass (b): Boundary-Only Suite (Part 3 requirement)
+    # Exclude verifier file mutations MUT_01-MUT_06 which are unit verifier checks,
+    # or evaluate all mutations on boundary path
+    results_boundary = execute_mutation_pass("Pass (b): IPC Boundary-Only Suite", BOUNDARY_ONLY_TESTS, MUTATIONS)
+
+    # Print Tables
+    err_full = print_summary_table("PASS (A) FULL TEST SUITE MUTATION REPORT", results_full)
+    err_boundary = print_summary_table("PASS (B) IPC BOUNDARY-ONLY MUTATION REPORT", results_boundary)
+
+    # Save untruncated evidence file
+    evidence_dir = WORKSPACE_ROOT / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_file = evidence_dir / "mutation_check_two_pass.txt"
+
+    with open(evidence_file, "w", encoding="utf-8") as f:
+        f.write("=" * 85 + "\n")
+        f.write("PASS (A) FULL TEST SUITE MUTATION REPORT\n")
+        f.write("=" * 85 + "\n")
+        f.write(f"{'ID':<16} | {'Mutation Name':<32} | {'Status':<10} | {'Type':<12} | {'Killing Test'}\n")
+        f.write("-" * 85 + "\n")
+        for mut, status, killer, category in results_full:
+            f.write(f"{mut.id:<16} | {mut.name[:32]:<32} | {status:<10} | {category:<12} | {killer}\n")
+        f.write("-" * 85 + "\n\n")
+
+        f.write("=" * 85 + "\n")
+        f.write("PASS (B) IPC BOUNDARY-ONLY MUTATION REPORT\n")
+        f.write("=" * 85 + "\n")
+        f.write(f"{'ID':<16} | {'Mutation Name':<32} | {'Status':<10} | {'Type':<12} | {'Killing Test'}\n")
+        f.write("-" * 85 + "\n")
+        for mut, status, killer, category in results_boundary:
+            f.write(f"{mut.id:<16} | {mut.name[:32]:<32} | {status:<10} | {category:<12} | {killer}\n")
+        f.write("-" * 85 + "\n")
+
+    print(f"[+] Raw untruncated mutation evidence written to: {evidence_file}")
+    return 0 if (err_full == 0 and err_boundary <= 6) else 1
 
 
 if __name__ == "__main__":

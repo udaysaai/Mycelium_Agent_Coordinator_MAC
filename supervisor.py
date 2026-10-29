@@ -63,7 +63,12 @@ class SupervisorDaemon:
         "EXECUTE_APPROVED",
         "POLL_TASK",
         "FETCH_RECEIPT",
-        "GET_DIAGNOSTICS"
+        "GET_DIAGNOSTICS",
+        "VERIFY_TOKEN"
+    }
+
+    ALLOWED_SHELL_COMMANDS = {
+        'echo', 'dir', 'type', 'ls', 'cat', 'python', 'pytest', 'git', 'node', 'npm', 'whoami'
     }
 
     FORBIDDEN_WORKER_MESSAGE_TYPES = {
@@ -91,7 +96,11 @@ class SupervisorDaemon:
 
         # 2. Trusted Subsystems (Supervisor is the ONLY owner)
         self.db_path = self.workspace_root / "data" / "mac_state.db"
-        self.state_store = StateStore(db_path=self.db_path, clock=self.clock)
+        self.state_store = StateStore(
+            db_path=self.db_path,
+            clock=self.clock,
+            integrity_key=self._signing_key
+        )
         self.policy_engine = PolicyEngine(
             sandbox_dirname="workspace_sandbox",
             signing_key=self._signing_key
@@ -374,6 +383,16 @@ class SupervisorDaemon:
         if msg_type == "GET_DIAGNOSTICS":
             return {"status": "OK", "diagnostics": {"os": sys.platform, "time": self.clock()}}
 
+        # 4. VERIFY_TOKEN
+        if msg_type == "VERIFY_TOKEN":
+            qid = msg.get("quarantine_id", "")
+            tok = msg.get("token", "")
+            stored = self.state_store.get_quarantine(qid)
+            if not stored:
+                return {"status": "ERROR", "valid": False}
+            is_valid = self.policy_engine.verify_hmac_token(tok, qid, stored["call_hash"], stored["expires_at"])
+            return {"status": "OK", "valid": is_valid}
+
         return {"status": "OK"}
 
     def _worker_propose_action(self, msg: Dict[str, Any]) -> Dict[str, Any]:
@@ -441,8 +460,29 @@ class SupervisorDaemon:
         if not stored_q:
             return {"status": "ERROR", "success": False, "exit_code": 404, "error": "Quarantine not found."}
 
+        # State store cryptographic integrity check
+        if not self.state_store.verify_integrity(self._signing_key):
+            logger.error("[SECURITY] State store integrity check failed before executing approved action.")
+            return {
+                "status": "ERROR",
+                "success": False,
+                "exit_code": 403,
+                "error": "Security Violation: State store integrity check failed."
+            }
+
         tool_name = stored_q.get("tool_name", "action")
         target = payload.get("command", payload.get("file_path", ""))
+
+        if tool_name == "execute_shell_command":
+            cmd_str = str(payload.get("command", "")).strip()
+            first_cmd = cmd_str.split()[0].lower() if cmd_str else ""
+            if first_cmd not in self.ALLOWED_SHELL_COMMANDS:
+                return {
+                    "status": "ERROR",
+                    "success": False,
+                    "exit_code": 403,
+                    "error": f"Security Violation: Shell command '{first_cmd}' not in allowlist."
+                }
 
         # 1. Recompute call hash from actual execution payload
         current_call_hash = self.policy_engine.compute_call_hash(tool_name, payload, str(target))
@@ -573,13 +613,9 @@ class SupervisorDaemon:
             quarantine_id=quarantine_id,
             decision=HOLApprovalStatus.APPROVED,
             operator_id="operator_ui",
-            notes=operator_notes
+            notes=operator_notes,
+            token=token
         )
-        with self.state_store._get_connection() as conn:
-            conn.execute(
-                "UPDATE quarantines SET one_shot_token = ? WHERE quarantine_id = ?",
-                (token, quarantine_id)
-            )
         logger.info(f"Operator approved quarantine {quarantine_id}. Token issued.")
         return token
 

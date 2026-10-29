@@ -1,0 +1,47 @@
+=====================================================================================
+PASS (A) FULL TEST SUITE MUTATION REPORT
+=====================================================================================
+ID               | Mutation Name                    | Status     | Type         | Killing Test
+-------------------------------------------------------------------------------------
+MUT_01_ALWAYS_PASS | Always Return Pass               | KILLED     | ASSERTION    | test_phase0_adversarial.py::test_adv_09_verifier_tamper_cases
+MUT_02_SKIP_EXISTENCE | Skip File Existence Check        | KILLED     | ASSERTION    | test_phase0_vertical_slice.py::test_verifier_catches_tampered_or_missing_file
+MUT_03_SKIP_HASH_COMPARE | Skip Hash Comparison             | KILLED     | ASSERTION    | test_phase0_adversarial.py::test_adv_09_verifier_tamper_cases
+MUT_04_SKIP_SIZE_CHECK | Skip File Size / min_bytes Check | KILLED     | ASSERTION    | test_phase0_vertical_slice.py::test_verifier_catches_tampered_or_missing_file
+MUT_05_SKIP_SHELL_EXIT_CHECK | Skip Shell Exit Code Verificatio | KILLED     | ASSERTION    | test_phase0_adversarial.py::test_adv_09_verifier_tamper_cases
+MUT_06_BINARY_CRLF_LEAK | Bypass Binary Mode Newline Invar | KILLED     | ASSERTION    | test_phase0_adversarial.py::test_adv_09_verifier_tamper_cases
+MUT_07_SKIP_HMAC_VERIFY | Skip HMAC Token Verification     | KILLED     | ASSERTION    | test_phase0_adversarial.py::test_adv_03_token_authenticity_hmac
+MUT_08_SKIP_CALL_HASH_RECOMPUTE | Skip Call-Hash Recompute at Exec | KILLED     | ASSERTION    | test_phase0_adversarial.py::test_adv_01_token_replay_rejected
+MUT_09_SKIP_EXPIRY_CHECK | Skip Token Expiry Check          | KILLED     | ASSERTION    | test_phase05_strengthened.py::test_strengthened_a4_validate_token_rejects_expired
+MUT_10_SKIP_CONSUMED_CHECK | Skip Consumed-State Replay Check | KILLED     | ASSERTION    | test_phase0_vertical_slice.py::test_t2_token_replay_blocked
+MUT_11_UNKNOWN_TOOL_AS_T0 | Classify Unknown Tools as T0     | KILLED     | ASSERTION    | test_phase0_adversarial.py::test_adv_07_tier_classification_and_capability_grants
+MUT_12_WORKER_ACCEPT_APPROVE | Worker Channel Accepts Approve   | KILLED     | ASSERTION    | test_phase05_boundary.py::test_boundary_c3_worker_channel_rejects_approval_messages
+MUT_13_WORKER_MSG_WHITELIST | Worker Message Whitelist Bypasse | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut13_worker_message_whitelist_bypassed
+MUT_14_UI_SECRET_CHECK | UI Secret Not Verified on Approv | KILLED     | ASSERTION    | test_phase06_wiring.py::test_named_pipe_supervisor_support
+MUT_15_PATH_CONTAINMENT | Sandbox Path Containment Bypasse | KILLED     | ASSERTION    | test_phase05_strengthened.py::test_strengthened_a2_directory_junction_breakout
+MUT_16_STATE_INTEGRITY | Row Integrity Check Skipped      | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+MUT_17_SHELL_ALLOWLIST | Shell Allowlist Bypassed         | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+-------------------------------------------------------------------------------------
+
+=====================================================================================
+PASS (B) IPC BOUNDARY-ONLY MUTATION REPORT
+=====================================================================================
+ID               | Mutation Name                    | Status     | Type         | Killing Test
+-------------------------------------------------------------------------------------
+MUT_01_ALWAYS_PASS | Always Return Pass               | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+MUT_02_SKIP_EXISTENCE | Skip File Existence Check        | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+MUT_03_SKIP_HASH_COMPARE | Skip Hash Comparison             | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+MUT_04_SKIP_SIZE_CHECK | Skip File Size / min_bytes Check | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+MUT_05_SKIP_SHELL_EXIT_CHECK | Skip Shell Exit Code Verificatio | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+MUT_06_BINARY_CRLF_LEAK | Bypass Binary Mode Newline Invar | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+MUT_07_SKIP_HMAC_VERIFY | Skip HMAC Token Verification     | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut07_forged_hmac_on_approved_action
+MUT_08_SKIP_CALL_HASH_RECOMPUTE | Skip Call-Hash Recompute at Exec | KILLED     | ASSERTION    | test_phase05_boundary.py::test_boundary_c7_argument_tampering_rejected_across_ipc
+MUT_09_SKIP_EXPIRY_CHECK | Skip Token Expiry Check          | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut09_expired_token_rejected_over_ipc
+MUT_10_SKIP_CONSUMED_CHECK | Skip Consumed-State Replay Check | KILLED     | ASSERTION    | test_phase05_boundary.py::test_boundary_c6_replay_token_rejected_across_ipc
+MUT_11_UNKNOWN_TOOL_AS_T0 | Classify Unknown Tools as T0     | KILLED     | ASSERTION    | test_phase05_boundary.py::test_boundary_c2_sqlite_direct_tamper_fails_execution
+MUT_12_WORKER_ACCEPT_APPROVE | Worker Channel Accepts Approve   | KILLED     | ASSERTION    | test_phase05_boundary.py::test_boundary_c3_worker_channel_rejects_approval_messages
+MUT_13_WORKER_MSG_WHITELIST | Worker Message Whitelist Bypasse | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut13_worker_message_whitelist_bypassed
+MUT_14_UI_SECRET_CHECK | UI Secret Not Verified on Approv | KILLED     | ASSERTION    | test_phase06_wiring.py::test_named_pipe_supervisor_support
+MUT_15_PATH_CONTAINMENT | Sandbox Path Containment Bypasse | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+MUT_16_STATE_INTEGRITY | Row Integrity Check Skipped      | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+MUT_17_SHELL_ALLOWLIST | Shell Allowlist Bypassed         | KILLED     | ASSERTION    | test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor
+-------------------------------------------------------------------------------------

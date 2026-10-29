@@ -60,6 +60,8 @@ class StateStore:
             else (self.db_path.parent / f"{self.db_path.name}.checkpoint.json")
         )
         self._local = threading.local()
+        self._conn_lock = threading.Lock()
+        self._all_conns: set = set()
         self._init_database()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -71,10 +73,12 @@ class StateStore:
             conn.execute("PRAGMA synchronous = NORMAL;")
             conn.execute("PRAGMA busy_timeout = 5000;")
             self._local.conn = conn
+            with self._conn_lock:
+                self._all_conns.add(conn)
         return conn
 
     def close(self) -> None:
-        """Close thread-local SQLite connection to release file locks."""
+        """Close thread-local SQLite connection and all registered connections to release file locks."""
         conn = getattr(self._local, "conn", None)
         if conn is not None:
             try:
@@ -82,6 +86,14 @@ class StateStore:
             except Exception:
                 pass
             self._local.conn = None
+
+        with self._conn_lock:
+            for c in list(self._all_conns):
+                try:
+                    c.close()
+                except Exception:
+                    pass
+            self._all_conns.clear()
 
     def _init_database(self) -> None:
         """Create schemas if not already present, with schema evolution for integrity columns."""
@@ -487,7 +499,8 @@ class StateStore:
         quarantine_id: str,
         decision: HOLApprovalStatus,
         operator_id: Optional[str] = None,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        token: Optional[str] = None,
     ) -> bool:
         """Resolve a quarantine entry (Approve/Reject). Default-deny if expired."""
         now = self.clock()
@@ -502,6 +515,8 @@ class StateStore:
             if row["status"] != HOLApprovalStatus.PENDING.value:
                 return False
 
+            final_token = token if token is not None else row["one_shot_token"]
+
             # Check timeout expiration
             if row["expires_at"] <= now:
                 new_status = HOLApprovalStatus.REJECTED_TIMEOUT.value
@@ -511,14 +526,14 @@ class StateStore:
                         self.integrity_key,
                         row["creation_hash"],
                         new_status,
-                        row["one_shot_token"],
+                        final_token,
                         now,
                         operator_id or "system_timeout",
                         "Expired before review",
                     )
                 conn.execute(
-                    "UPDATE quarantines SET status = ?, reviewed_at = ?, operator_notes = 'Expired before review', row_hmac = ? WHERE quarantine_id = ?",
-                    (new_status, now, row_hmac, quarantine_id)
+                    "UPDATE quarantines SET status = ?, reviewed_at = ?, operator_notes = 'Expired before review', one_shot_token = ?, row_hmac = ? WHERE quarantine_id = ?",
+                    (new_status, now, final_token, row_hmac, quarantine_id)
                 )
                 return False
 
@@ -531,7 +546,7 @@ class StateStore:
                     self.integrity_key,
                     row["creation_hash"],
                     decision_str,
-                    row["one_shot_token"],
+                    final_token,
                     now,
                     op_str,
                     notes_str,
@@ -539,13 +554,14 @@ class StateStore:
 
             conn.execute("""
                 UPDATE quarantines
-                SET status = ?, reviewed_at = ?, operator_id = ?, operator_notes = ?, row_hmac = ?
+                SET status = ?, reviewed_at = ?, operator_id = ?, operator_notes = ?, one_shot_token = ?, row_hmac = ?
                 WHERE quarantine_id = ?
             """, (
                 decision_str,
                 now,
                 op_str,
                 notes_str,
+                final_token,
                 row_hmac,
                 quarantine_id
             ))
