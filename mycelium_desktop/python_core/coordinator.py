@@ -115,36 +115,82 @@ class MyceliumCoordinator:
             tags=["write", "create", "file", "modify", "save", "workspace", "update"]
         )
 
+        RESERVED_DEVICE_NAMES = {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        }
+
         # 3. Hardened Sandboxed File Writer with Atomic Sync (T1: MUTATING_SANDBOX)
         def _sandboxed_atomic_writer(file_path: str, content: str) -> Dict[str, Any]:
             sandbox_dir = (self.daemon.workspace_root / "workspace_sandbox").resolve()
             sandbox_dir.mkdir(parents=True, exist_ok=True)
 
-            clean_str = str(file_path).strip()
-            # Reject UNC network paths, Windows drive letters, and absolute paths
+            raw_path_str = str(file_path)
+            if not raw_path_str:
+                raise ValueError("file_path cannot be empty")
+
+            # 1. Reject Alternate Data Streams (ADS) and Drive Letters
+            if ":" in raw_path_str:
+                raise PermissionError(f"Alternate data streams and drive letters forbidden in sandbox: '{file_path}'")
+
+            # 2. Reject UNC network paths and NT prefixes
+            norm_slashes = raw_path_str.replace("\\", "/")
             if (
-                clean_str.startswith(("//", "\\\\"))
-                or (len(clean_str) >= 2 and clean_str[1] == ":")
-                or os.path.isabs(clean_str)
+                norm_slashes.startswith("//")
+                or norm_slashes.startswith("/?")
+                or norm_slashes.startswith("/.")
+                or raw_path_str.startswith(("\\\\", "//", "\\\\?\\", "\\\\.\\"))
             ):
-                raise PermissionError(f"Absolute, UNC, or drive-letter paths forbidden in sandbox: '{file_path}'")
+                raise PermissionError(f"UNC, NT, and network device prefixes forbidden in sandbox: '{file_path}'")
 
-            # Reject path traversal walking up
-            norm_parts = clean_str.replace("\\", "/").split("/")
-            if ".." in norm_parts:
-                raise PermissionError(f"Path traversal sequence '..' forbidden in sandbox: '{file_path}'")
+            # 3. Reject absolute paths
+            if os.path.isabs(raw_path_str) or norm_slashes.startswith("/"):
+                raise PermissionError(f"Absolute paths forbidden in sandbox: '{file_path}'")
 
-            clean_rel = clean_str.replace("\\", "/").lstrip("/")
-            if clean_rel.startswith("workspace_sandbox/"):
-                clean_rel = clean_rel[len("workspace_sandbox/"):]
+            # Split path into raw components to validate each token
+            raw_parts = [p for p in norm_slashes.split("/") if p != ""]
 
-            target = (sandbox_dir / clean_rel).resolve()
-            # Enforce strict sandbox confinement and symlink / junction breakout check
-            real_target = target.resolve()
-            real_sandbox = sandbox_dir.resolve()
+            for part in raw_parts:
+                # 4. Trailing dot or trailing space check (NTFS stripping causes aliasing)
+                if part.endswith(".") or part.endswith(" "):
+                    raise PermissionError(f"Trailing dot or space in path component forbidden: '{part}'")
+
+                # 5. Path traversal sequence
+                if part == "..":
+                    raise PermissionError(f"Path traversal sequence '..' forbidden in sandbox: '{file_path}'")
+
+                # 6. 8.3 short-name aliases
+                if "~" in part:
+                    raise PermissionError(f"8.3 short-name alias forbidden in sandbox: '{part}'")
+
+                # 7. Reserved Windows device names
+                base_name = part.split(".")[0].upper()
+                if base_name in RESERVED_DEVICE_NAMES:
+                    raise PermissionError(f"Windows reserved device name forbidden: '{part}'")
+
+            # Strip case-insensitive "workspace_sandbox/" prefix if present
+            clean_rel = norm_slashes.lstrip("/")
+            prefix = "workspace_sandbox/"
+            if clean_rel.lower().startswith(prefix):
+                clean_rel = clean_rel[len(prefix):]
+
+            if not clean_rel or clean_rel == ".":
+                raise PermissionError("Target cannot be empty or the sandbox directory itself")
+
+            target = (sandbox_dir / clean_rel)
+
+            # 8. Real path resolution and commonpath containment (blocks junctions & symlink escapes)
+            real_sandbox = os.path.realpath(str(sandbox_dir))
+            real_target = os.path.realpath(str(target))
+            real_parent = os.path.realpath(str(target.parent))
+
             try:
-                real_target.relative_to(real_sandbox)
-            except ValueError as exc:
+                cp_target = os.path.commonpath([real_sandbox, real_target])
+                cp_parent = os.path.commonpath([real_sandbox, real_parent])
+                if cp_target != real_sandbox or cp_parent != real_sandbox:
+                    raise PermissionError(f"Sandboxed file writer violated sandbox boundary: '{file_path}'")
+            except (ValueError, OSError) as exc:
                 raise PermissionError(f"Sandboxed file writer violated sandbox boundary: '{file_path}'") from exc
 
             target.parent.mkdir(parents=True, exist_ok=True)
