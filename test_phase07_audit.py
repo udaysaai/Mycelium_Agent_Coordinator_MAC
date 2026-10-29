@@ -116,6 +116,25 @@ print("PROBE_JSON:" + json.dumps(res))
 # 1B. Non-Vacuous W4 OpenProcess Testing
 # ============================================================================
 
+def _protect_process_dacl(handle):
+    import win32api, win32security, win32con
+    tok = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32security.TOKEN_QUERY)
+    user_sid, _ = win32security.GetTokenInformation(tok, win32security.TokenUser)
+    logon_sid = None
+    for s, a in win32security.GetTokenInformation(tok, win32security.TokenGroups):
+        if win32security.ConvertSidToStringSid(s).startswith("S-1-5-5-"):
+            logon_sid = s
+            break
+    dacl = win32security.ACL()
+    safe_mask = win32con.PROCESS_ALL_ACCESS & ~win32con.PROCESS_TERMINATE
+    dacl.AddAccessAllowedAce(win32security.ACL_REVISION, safe_mask, user_sid)
+    if logon_sid:
+        dacl.AddAccessAllowedAce(win32security.ACL_REVISION, 0x121410, logon_sid)
+    sd = win32security.SECURITY_DESCRIPTOR()
+    sd.SetSecurityDescriptorDacl(1, dacl, 0)
+    win32security.SetKernelObjectSecurity(handle, win32security.DACL_SECURITY_INFORMATION, sd)
+
+
 def test_w4_non_vacuous_openprocess_against_supervisor_and_standin(supervisor_audit_env):
     """
     Non-vacuous W4:
@@ -139,6 +158,8 @@ def test_w4_non_vacuous_openprocess_against_supervisor_and_standin(supervisor_au
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
+    if sys.platform == "win32":
+        _protect_process_dacl(standin_proc._handle)
 
     try:
         standin_pid = standin_proc.pid
