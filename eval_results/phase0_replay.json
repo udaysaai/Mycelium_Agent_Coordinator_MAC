@@ -2,8 +2,8 @@
   "metadata": {
     "iterations_per_workflow": 20,
     "total_runs": 40,
-    "timestamp": 1793255339.2102666,
-    "date": "2026-10-29 11:58:59"
+    "timestamp": 1793255980.1638732,
+    "date": "2026-10-29 12:09:40"
   },
   "workflow_t1_sandboxed_write": {
     "total": 20,
@@ -13,32 +13,32 @@
     "success_rate_pct": 100.0,
     "latencies_ms": {
       "intake_stage": {
-        "mean": 0.069,
-        "median": 0.049,
-        "p95": 0.059,
-        "min": 0.029,
-        "max": 0.536
+        "mean": 0.065,
+        "median": 0.052,
+        "p95": 0.061,
+        "min": 0.038,
+        "max": 0.332
       },
       "policy_stage": {
-        "mean": 0.015,
-        "median": 0.016,
-        "p95": 0.022,
-        "min": 0.01,
-        "max": 0.022
+        "mean": 0.018,
+        "median": 0.018,
+        "p95": 0.021,
+        "min": 0.014,
+        "max": 0.026
       },
       "coordinator_dispatch": {
-        "mean": 13.699,
-        "median": 13.397,
-        "p95": 17.417,
-        "min": 9.688,
-        "max": 19.536
+        "mean": 15.859,
+        "median": 16.081,
+        "p95": 17.332,
+        "min": 11.05,
+        "max": 22.586
       },
       "end_to_end": {
-        "mean": 13.942,
-        "median": 13.556,
-        "p95": 17.699,
-        "min": 9.941,
-        "max": 19.785
+        "mean": 16.131,
+        "median": 16.38,
+        "p95": 17.607,
+        "min": 11.515,
+        "max": 22.843
       }
     },
     "failures": []
@@ -51,25 +51,25 @@
     "success_rate_pct": 100.0,
     "latencies_ms": {
       "ui_channel_approval": {
-        "mean": 0.002,
-        "median": 0.002,
-        "p95": 0.003,
+        "mean": 0.003,
+        "median": 0.003,
+        "p95": 0.004,
         "min": 0.001,
-        "max": 0.004
+        "max": 0.005
       },
       "coordinator_dispatch": {
-        "mean": 299.122,
-        "median": 292.221,
-        "p95": 364.707,
-        "min": 257.213,
-        "max": 380.488
+        "mean": 374.496,
+        "median": 292.395,
+        "p95": 827.803,
+        "min": 248.822,
+        "max": 1165.127
       },
       "end_to_end": {
-        "mean": 299.212,
-        "median": 292.337,
-        "p95": 364.766,
-        "min": 257.338,
-        "max": 380.567
+        "mean": 374.629,
+        "median": 292.466,
+        "p95": 828.01,
+        "min": 248.941,
+        "max": 1165.223
       }
     },
     "failures": []
