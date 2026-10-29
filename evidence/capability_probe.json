@@ -1,0 +1,17 @@
+{
+  "os_platform": "Windows-11-10.0.26340-SP0",
+  "windows_version": {
+    "major": 10,
+    "minor": 0,
+    "build": 26340,
+    "platform": 2,
+    "service_pack": ""
+  },
+  "is_admin": false,
+  "has_create_appcontainer_profile": true,
+  "has_create_restricted_token": true,
+  "has_set_token_information": true,
+  "wsl_available": true,
+  "wsl_status": "D\u0000e\u0000f\u0000a\u0000u\u0000l\u0000t\u0000 \u0000V\u0000e\u0000r\u0000s\u0000i\u0000o\u0000n\u0000:\u0000 \u00002\u0000\n\u0000\n\u0000",
+  "windows_sandbox_executable": false
+}
