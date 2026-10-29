@@ -72,6 +72,21 @@ class MyceliumCoordinator:
         :param policy_engine: PolicyEngine instance.
         :param verifier: DeterministicVerifier instance.
         """
+        # Enforce process boundary: in production mode, direct in-process coordinator is blocked.
+        # Only isolated test suites with explicit opt-in can initialize in-process.
+        if os.environ.get("MAC_UNSAFE_INPROCESS_FOR_TESTS") != "1":
+            raise RuntimeError(
+                "In-process coordinator execution is blocked in production mode. "
+                "The application must run through the SupervisorDaemon boundary. "
+                "Set MAC_UNSAFE_INPROCESS_FOR_TESTS=1 for isolated tests only."
+            )
+        else:
+            sys.stderr.write(
+                "[SECURITY WARNING] Running MyceliumCoordinator in unsafe in-process mode! "
+                "This mode bypasses process isolation and is for tests only.\n"
+            )
+            sys.stderr.flush()
+
         self.daemon = local_daemon or LocalExecDaemon()
         self.gateway = mcp_gateway or MCPGateway()
         self.human_confirmation_hook = human_confirmation_hook or self._default_cli_human_hook
