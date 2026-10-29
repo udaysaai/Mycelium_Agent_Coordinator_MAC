@@ -1,7 +1,7 @@
 # US Neural - Mycelium Agent Coordinator (MAC) & HOL Guard
 
 [![Architecture: Split-Execution](https://img.shields.io/badge/Architecture-Split--Execution-00ffcc.svg)](#)
-[![Python: 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](#)
+[![Python: 3.14](https://img.shields.io/badge/Python-3.14%20(Pinned)-blue.svg)](#)
 [![Pydantic: v2](https://img.shields.io/badge/Pydantic-v2-E92063.svg)](#)
 [![Clean-Room: Original](https://img.shields.io/badge/Clean--Room-Original%20Implementation-green.svg)](#)
 [![Semantic Mesh: Sublinear](https://img.shields.io/badge/Semantic%20Mesh-Sublinear%20Discovery-purple.svg)](#)
@@ -124,5 +124,11 @@ pytest test_mac.py -v
 
 ---
 
-## 🛡️ License & Clean-Room Guarantee
+## 🔧 Environment & Supported Python Version
+- **Supported Python**: `Python 3.14.4` (Windows AMD64). Compatible with `Python 3.12+`.
+- **Dependencies**: Pinned in `requirements.txt` (`pydantic==2.13.3`, `pytest==8.2.2`, `rich==15.0.0`, `pywin32==311`).
+
+---
+
+## 🛡️ License & Clean-Room Specification
 Developed clean-room from first principles by US Neural Systems Architecture. Contains zero third-party proprietary code or internal endpoints. Open-source under Apache-2.0.

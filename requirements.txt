@@ -1,0 +1,6 @@
+# Pinned dependencies for MAC (Mycelium Agent Coordinator)
+# Python target: 3.14.4 (Windows AMD64)
+pydantic==2.13.3
+pytest==8.2.2
+rich==15.0.0
+pywin32==311
