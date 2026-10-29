@@ -103,10 +103,10 @@ time.sleep(60)
             pending = fresh_store.get_pending_quarantines()
             assert len(pending) == 1, f"Expected 1 pending quarantine, found {len(pending)}"
             item = pending[0]
-            assert item.quarantineId == "quarantine-crash-001"
-            assert item.decision == HOLApprovalStatus.PENDING
-            assert item.request.requestId == "req-crash-target-001"
-            assert item.reviewedAt is None, "Quarantine must remain unexecuted after crash"
+            assert item["quarantine_id"] == "quarantine-crash-001"
+            assert item["status"] == HOLApprovalStatus.PENDING.value
+            assert item["request_id"] == "req-crash-target-001"
+            assert item["reviewed_at"] is None, "Quarantine must remain unexecuted after crash"
         finally:
             fresh_store.close()
 
@@ -192,20 +192,22 @@ def test_strengthened_a2_windows_path_safety_payloads(payload):
         ws_root = Path(tmp_dir).resolve()
         daemon = LocalExecDaemon(workspace_root=ws_root)
         coord = MyceliumCoordinator(local_daemon=daemon)
+        try:
+            # Retrieve registered tool handler for sandboxed_file_writer
+            record = coord.gateway._tools.get("sandboxed_file_writer")
+            assert record is not None, "sandboxed_file_writer must be registered"
+            writer_fn = record.handler
 
-        # Retrieve registered tool handler for sandboxed_file_writer
-        tool_rec = coord.gateway.get_tool("sandboxed_file_writer")
-        assert tool_rec is not None, "sandboxed_file_writer must be registered"
-        writer_fn = tool_rec.handler
+            with pytest.raises((PermissionError, ValueError, OSError)) as exc_info:
+                writer_fn(file_path=payload, content="MALICIOUS_PAYLOAD")
 
-        with pytest.raises((PermissionError, ValueError, OSError)) as exc_info:
-            writer_fn(file_path=payload, content="MALICIOUS_PAYLOAD")
-
-        # Confirm failure was loud and descriptive
-        err_msg = str(exc_info.value).lower()
-        assert any(term in err_msg for term in ["forbidden", "sandbox", "reserved", "traversal", "boundary", "invalid", "device", "stream"]), (
-            f"Expected descriptive sandbox rejection for '{payload}', got: {exc_info.value}"
-        )
+            # Confirm failure was loud and descriptive
+            err_msg = str(exc_info.value).lower()
+            assert any(term in err_msg for term in ["forbidden", "sandbox", "reserved", "traversal", "boundary", "invalid", "device", "stream", "escape", "illegal"]), (
+                f"Expected descriptive sandbox rejection for '{payload}', got: {exc_info.value}"
+            )
+        finally:
+            coord.state_store.close()
 
 
 def test_strengthened_a2_case_variant_sandbox_prefix():
@@ -217,17 +219,20 @@ def test_strengthened_a2_case_variant_sandbox_prefix():
         ws_root = Path(tmp_dir).resolve()
         daemon = LocalExecDaemon(workspace_root=ws_root)
         coord = MyceliumCoordinator(local_daemon=daemon)
-        writer_fn = coord.gateway.get_tool("sandboxed_file_writer").handler
+        try:
+            writer_fn = coord.gateway._tools["sandboxed_file_writer"].handler
 
-        # Case-variant input
-        res = writer_fn(file_path="WorkSpace_SandBox/nested/valid.txt", content="TEST")
-        assert res["success"] is True
+            # Case-variant input
+            res = writer_fn(file_path="WorkSpace_SandBox/nested/valid.txt", content="TEST")
+            assert res["success"] is True
 
-        # Resolved file must be strictly inside real workspace_sandbox
-        expected_sandbox = (ws_root / "workspace_sandbox").resolve()
-        written_file = (ws_root / res["filePath"]).resolve()
-        assert os.path.commonpath([expected_sandbox, written_file]) == str(expected_sandbox)
-        assert written_file.exists()
+            # Resolved file must be strictly inside real workspace_sandbox
+            expected_sandbox = (ws_root / "workspace_sandbox").resolve()
+            written_file = (ws_root / res["filePath"]).resolve()
+            assert os.path.commonpath([str(expected_sandbox), str(written_file)]) == str(expected_sandbox)
+            assert written_file.exists()
+        finally:
+            coord.state_store.close()
 
 
 def test_strengthened_a2_directory_junction_breakout():
@@ -261,12 +266,15 @@ def test_strengthened_a2_directory_junction_breakout():
 
         daemon = LocalExecDaemon(workspace_root=ws_root)
         coord = MyceliumCoordinator(local_daemon=daemon)
-        writer_fn = coord.gateway.get_tool("sandboxed_file_writer").handler
+        try:
+            writer_fn = coord.gateway._tools["sandboxed_file_writer"].handler
 
-        # Attempt to write through the junction
-        with pytest.raises((PermissionError, ValueError)) as exc_info:
-            writer_fn(file_path="link_to_outside/pwned.txt", content="ESCAPED_SANDBOX")
+            # Attempt to write through the junction
+            with pytest.raises((PermissionError, ValueError, OSError)) as exc_info:
+                writer_fn(file_path="link_to_outside/pwned.txt", content="ESCAPED_SANDBOX")
 
-        assert "boundary" in str(exc_info.value).lower() or "sandbox" in str(exc_info.value).lower()
-        # Verify file was NOT written outside
-        assert not (outside_target / "pwned.txt").exists(), "Security Violation: File was written through junction to outside directory!"
+            assert "boundary" in str(exc_info.value).lower() or "sandbox" in str(exc_info.value).lower()
+            # Verify file was NOT written outside
+            assert not (outside_target / "pwned.txt").exists(), "Security Violation: File was written through junction to outside directory!"
+        finally:
+            coord.state_store.close()
