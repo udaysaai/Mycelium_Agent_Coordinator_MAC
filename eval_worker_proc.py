@@ -15,33 +15,94 @@ import time
 from typing import Any, Dict
 
 
-def send_recv(sock: socket.socket, msg: Dict[str, Any]) -> Dict[str, Any]:
-    payload = json.dumps(msg) + "\n"
-    sock.sendall(payload.encode("utf-8"))
-    buffer = ""
-    while "\n" not in buffer:
-        chunk = sock.recv(65536).decode("utf-8")
-        if not chunk:
-            raise ConnectionResetError("Connection closed by supervisor.")
-        buffer += chunk
-    line, _ = buffer.split("\n", 1)
-    return json.loads(line)
+class PipeClient:
+    def __init__(self, pipe_path: str):
+        import time, win32file, win32pipe, pywintypes
+        self.pipe_path = pipe_path
+        start = time.time()
+        self.h = None
+        while time.time() - start < 5.0:
+            try:
+                self.h = win32file.CreateFile(
+                    pipe_path,
+                    win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                    0, None,
+                    win32file.OPEN_EXISTING,
+                    0, None
+                )
+                break
+            except pywintypes.error as e:
+                if e.winerror == 231:
+                    try:
+                        win32pipe.WaitNamedPipe(pipe_path, 1000)
+                    except Exception:
+                        time.sleep(0.05)
+                else:
+                    raise
+        if self.h is None:
+            raise TimeoutError(f"Failed to connect to named pipe {pipe_path}")
+
+    def send_recv(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        import win32file
+        payload = (json.dumps(msg) + "\n").encode("utf-8")
+        win32file.WriteFile(self.h, payload)
+        win32file.FlushFileBuffers(self.h)
+        err, data = win32file.ReadFile(self.h, 65536)
+        line = data.decode("utf-8").strip()
+        if "\n" in line:
+            line = line.split("\n")[0]
+        return json.loads(line)
+
+    def close(self):
+        import win32api
+        if self.h:
+            try:
+                win32api.CloseHandle(self.h)
+            except Exception:
+                pass
+
+
+class SocketClient:
+    def __init__(self, port: int):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect(("127.0.0.1", port))
+
+    def send_recv(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        payload = json.dumps(msg) + "\n"
+        self.sock.sendall(payload.encode("utf-8"))
+        buffer = ""
+        while "\n" not in buffer:
+            chunk = self.sock.recv(65536).decode("utf-8")
+            if not chunk:
+                raise ConnectionResetError("Connection closed by supervisor.")
+            buffer += chunk
+        line, _ = buffer.split("\n", 1)
+        return json.loads(line)
+
+    def close(self):
+        self.sock.close()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Eval Replay Worker Subprocess")
-    parser.add_argument("--port", type=int, required=True, help="Supervisor worker port")
+    parser.add_argument("--port", type=int, default=None, help="Supervisor worker port")
+    parser.add_argument("--pipe", type=str, default=None, help="Supervisor worker named pipe")
     parser.add_argument("--secret", type=str, required=True, help="Worker authentication secret")
     parser.add_argument("--iter-idx", type=int, default=1, help="Iteration index")
     parser.add_argument("--mode", type=str, default="normal", choices=["normal", "kill_before_exec"], help="Execution mode")
     args = parser.parse_args()
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("127.0.0.1", args.port))
+    if args.pipe:
+        client = PipeClient(args.pipe)
+    elif args.port:
+        client = SocketClient(args.port)
+    else:
+        print(json.dumps({"error": "Either --pipe or --port is required"}))
+        return 1
 
     try:
         # 1. AUTH
-        auth_resp = send_recv(sock, {
+        auth_resp = client.send_recv({
             "type": "AUTH",
             "secret": args.secret
         })
@@ -53,8 +114,9 @@ def main() -> int:
         t1_start = time.perf_counter()
         t1_filename = f"eval_worker_{args.iter_idx}.json"
         t1_content = f'{{"iteration": {args.iter_idx}, "worker_pid": {args.iter_idx}}}'
-        t1_resp = send_recv(sock, {
+        t1_resp = client.send_recv({
             "type": "PROPOSE_ACTION",
+            "secret": args.secret,
             "intent": f"Write eval file {t1_filename}",
             "tool_name": "sandboxed_file_writer",
             "payload": {
@@ -67,8 +129,9 @@ def main() -> int:
         # 3. T2 Quarantined Shell Action
         t2_start = time.perf_counter()
         cmd = f"python -c \"import sys; sys.stdout.write('WORKER_RUN_{args.iter_idx}_OK')\""
-        t2_resp = send_recv(sock, {
+        t2_resp = client.send_recv({
             "type": "PROPOSE_ACTION",
+            "secret": args.secret,
             "intent": f"Run worker shell command {args.iter_idx}",
             "tool_name": "execute_shell_command",
             "payload": {"command": cmd}
@@ -107,8 +170,9 @@ def main() -> int:
 
         # 4. Execute Approved T2
         t2_exec_start = time.perf_counter()
-        t2_exec_resp = send_recv(sock, {
+        t2_exec_resp = client.send_recv({
             "type": "EXECUTE_APPROVED",
+            "secret": args.secret,
             "quarantine_id": qid,
             "one_shot_token": token,
             "payload": {"command": cmd}
@@ -132,7 +196,7 @@ def main() -> int:
         return 0
 
     finally:
-        sock.close()
+        client.close()
 
 
 if __name__ == "__main__":

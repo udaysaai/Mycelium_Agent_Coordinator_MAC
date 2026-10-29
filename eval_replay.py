@@ -76,11 +76,55 @@ def calc_stats(values: List[float]) -> Dict[str, float]:
     }
 
 
-def send_ui_command(ui_port: int, msg: Dict[str, Any]) -> Dict[str, Any]:
-    """Send an authenticated command over the isolated UI channel socket."""
+def pipe_send_recv(pipe_path: str, msg: Dict[str, Any]) -> Dict[str, Any]:
+    """Send and receive a message over Windows Named Pipe with busy retry."""
+    import time
+    import win32api
+    import win32file
+    import win32pipe
+    import pywintypes
+
+    start = time.time()
+    h = None
+    while time.time() - start < 5.0:
+        try:
+            h = win32file.CreateFile(
+                pipe_path,
+                win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                0, None,
+                win32file.OPEN_EXISTING,
+                0, None
+            )
+            break
+        except pywintypes.error as e:
+            if e.winerror == 231:  # ERROR_PIPE_BUSY
+                try:
+                    win32pipe.WaitNamedPipe(pipe_path, 1000)
+                except Exception:
+                    time.sleep(0.05)
+            else:
+                raise
+    if h is None:
+        raise TimeoutError(f"Could not connect to named pipe {pipe_path} within 5s")
+    try:
+        win32file.WriteFile(h, (json.dumps(msg) + "\n").encode("utf-8"))
+        win32file.FlushFileBuffers(h)
+        err, data = win32file.ReadFile(h, 65536)
+        line = data.decode("utf-8").strip()
+        if "\n" in line:
+            line = line.split("\n")[0]
+        return json.loads(line)
+    finally:
+        win32api.CloseHandle(h)
+
+
+def send_ui_command(supervisor: SupervisorDaemon, msg: Dict[str, Any], use_named_pipes: bool = True) -> Dict[str, Any]:
+    """Send an authenticated command over the isolated UI channel."""
+    if use_named_pipes and sys.platform == "win32":
+        return pipe_send_recv(supervisor.ui_pipe_path, msg)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(10.0)
-    sock.connect(("127.0.0.1", ui_port))
+    sock.connect(("127.0.0.1", supervisor.ui_port))
     try:
         sock.sendall((json.dumps(msg) + "\n").encode("utf-8"))
         buffer = ""
@@ -95,7 +139,7 @@ def send_ui_command(ui_port: int, msg: Dict[str, Any]) -> Dict[str, Any]:
         sock.close()
 
 
-def run_benchmark_iteration(iter_idx: int) -> Dict[str, Any]:
+def run_benchmark_iteration(iter_idx: int, use_named_pipes: bool = True) -> Dict[str, Any]:
     """
     Run one full benchmark task across the process boundary:
       1. Fresh workspace creation and clean state verification.
@@ -118,7 +162,7 @@ def run_benchmark_iteration(iter_idx: int) -> Dict[str, Any]:
         assert len(initial_files) == 0, f"State leak before run: {initial_files}"
 
         # Initialize and start Supervisor
-        supervisor = SupervisorDaemon(workspace_root=ws_root)
+        supervisor = SupervisorDaemon(workspace_root=ws_root, use_named_pipes=use_named_pipes)
         supervisor.start()
 
         sup_pid = os.getpid()
@@ -128,12 +172,20 @@ def run_benchmark_iteration(iter_idx: int) -> Dict[str, Any]:
         try:
             # Spawn worker subprocess
             worker_script = WORKSPACE_ROOT / "eval_worker_proc.py"
-            cmd = [
-                sys.executable, str(worker_script),
-                "--port", str(supervisor.worker_port),
-                "--secret", supervisor.worker_secret,
-                "--iter-idx", str(iter_idx)
-            ]
+            if use_named_pipes and sys.platform == "win32":
+                cmd = [
+                    sys.executable, str(worker_script),
+                    "--pipe", str(supervisor.worker_pipe_path),
+                    "--secret", supervisor.worker_secret,
+                    "--iter-idx", str(iter_idx)
+                ]
+            else:
+                cmd = [
+                    sys.executable, str(worker_script),
+                    "--port", str(supervisor.worker_port),
+                    "--secret", supervisor.worker_secret,
+                    "--iter-idx", str(iter_idx)
+                ]
 
             worker_proc = subprocess.Popen(
                 cmd,
@@ -168,12 +220,12 @@ def run_benchmark_iteration(iter_idx: int) -> Dict[str, Any]:
 
             # UI Channel Approval
             ui_t0 = time.perf_counter()
-            ui_resp = send_ui_command(supervisor.ui_port, {
+            ui_resp = send_ui_command(supervisor, {
                 "secret": supervisor.ui_secret,
                 "type": "APPROVE_ACTION",
                 "quarantine_id": qid,
                 "operator_notes": f"Approved by benchmark harness iter {iter_idx}"
-            })
+            }, use_named_pipes=use_named_pipes)
             ui_approval_ms = (time.perf_counter() - ui_t0) * 1000.0
 
             assert ui_resp.get("status") == "APPROVED"
@@ -220,6 +272,7 @@ def run_benchmark_iteration(iter_idx: int) -> Dict[str, Any]:
             return {
                 "iteration": iter_idx,
                 "success": True,
+                "has_verified_pass_receipt": (t1_resp.get("receipt", {}).get("verified") is True and t2_exec_resp.get("receipt", {}).get("verified") is True),
                 "latencies_ms": {
                     "t1_write": step1_data["t1_latency_ms"],
                     "t2_propose": step1_data["t2_propose_latency_ms"],
@@ -241,28 +294,37 @@ def run_benchmark_iteration(iter_idx: int) -> Dict[str, Any]:
             supervisor.stop()
 
 
-def run_injected_failure_worker_killed(iter_idx: int = 101) -> Dict[str, Any]:
+def run_injected_failure_worker_killed(iter_idx: int = 101, use_named_pipes: bool = True) -> Dict[str, Any]:
     """
     Failure Scenario 1: Worker is hard-killed mid-task while action is quarantined.
-    Supervisor must survive, handle socket disconnection, and leave quarantine unexecuted in DB.
+    Supervisor must survive, handle disconnection, and leave quarantine unexecuted in DB.
     """
     with tempfile.TemporaryDirectory(prefix="mac_fail_kill_") as tmp_dir:
         ws_root = Path(tmp_dir).resolve()
         (ws_root / "workspace_sandbox").mkdir(parents=True, exist_ok=True)
 
-        supervisor = SupervisorDaemon(workspace_root=ws_root)
+        supervisor = SupervisorDaemon(workspace_root=ws_root, use_named_pipes=use_named_pipes)
         supervisor.start()
 
         worker_proc: Optional[subprocess.Popen] = None
         try:
             worker_script = WORKSPACE_ROOT / "eval_worker_proc.py"
-            cmd = [
-                sys.executable, str(worker_script),
-                "--port", str(supervisor.worker_port),
-                "--secret", supervisor.worker_secret,
-                "--iter-idx", str(iter_idx),
-                "--mode", "kill_before_exec"
-            ]
+            if use_named_pipes and sys.platform == "win32":
+                cmd = [
+                    sys.executable, str(worker_script),
+                    "--pipe", str(supervisor.worker_pipe_path),
+                    "--secret", supervisor.worker_secret,
+                    "--iter-idx", str(iter_idx),
+                    "--mode", "kill_before_exec"
+                ]
+            else:
+                cmd = [
+                    sys.executable, str(worker_script),
+                    "--port", str(supervisor.worker_port),
+                    "--secret", supervisor.worker_secret,
+                    "--iter-idx", str(iter_idx),
+                    "--mode", "kill_before_exec"
+                ]
 
             worker_proc = subprocess.Popen(
                 cmd,
@@ -283,10 +345,10 @@ def run_injected_failure_worker_killed(iter_idx: int = 101) -> Dict[str, Any]:
             worker_proc.wait(timeout=3.0)
 
             # Verify supervisor is still healthy and responsive
-            diag = send_ui_command(supervisor.ui_port, {
+            diag = send_ui_command(supervisor, {
                 "secret": supervisor.ui_secret,
                 "type": "LIST_PENDING"
-            })
+            }, use_named_pipes=use_named_pipes)
             assert diag.get("status") == "OK"
             pending_ids = [q["quarantine_id"] for q in diag.get("pending", [])]
             assert qid in pending_ids
@@ -314,7 +376,7 @@ def run_injected_failure_worker_killed(iter_idx: int = 101) -> Dict[str, Any]:
             supervisor.stop()
 
 
-def run_injected_failure_approval_denied(iter_idx: int = 102) -> Dict[str, Any]:
+def run_injected_failure_approval_denied(iter_idx: int = 102, use_named_pipes: bool = True) -> Dict[str, Any]:
     """
     Failure Scenario 2: Operator explicitly rejects T2 action via UI channel.
     Worker execution attempt must fail, and status must stay REJECTED.
@@ -323,49 +385,78 @@ def run_injected_failure_approval_denied(iter_idx: int = 102) -> Dict[str, Any]:
         ws_root = Path(tmp_dir).resolve()
         (ws_root / "workspace_sandbox").mkdir(parents=True, exist_ok=True)
 
-        supervisor = SupervisorDaemon(workspace_root=ws_root)
+        supervisor = SupervisorDaemon(workspace_root=ws_root, use_named_pipes=use_named_pipes)
         supervisor.start()
 
-        worker_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        worker_sock.connect(("127.0.0.1", supervisor.worker_port))
-
         try:
-            # 1. Auth worker
-            worker_sock.sendall((json.dumps({"type": "AUTH", "secret": supervisor.worker_secret}) + "\n").encode("utf-8"))
-            auth_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
-            assert auth_resp.get("status") in ("OK", "AUTHENTICATED")
+            if use_named_pipes and sys.platform == "win32":
+                auth_resp = pipe_send_recv(supervisor.worker_pipe_path, {
+                    "type": "AUTH", "secret": supervisor.worker_secret
+                })
+                assert auth_resp.get("status") in ("OK", "AUTHENTICATED")
 
-            # 2. Propose T2 action
-            worker_sock.sendall((json.dumps({
-                "type": "PROPOSE_ACTION",
-                "intent": "destructively modify system",
-                "tool_name": "execute_shell_command",
-                "payload": {"command": "echo MALICIOUS"}
-            }) + "\n").encode("utf-8"))
-            prop_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
-            qid = prop_resp.get("quarantine_id")
+                prop_resp = pipe_send_recv(supervisor.worker_pipe_path, {
+                    "type": "PROPOSE_ACTION",
+                    "secret": supervisor.worker_secret,
+                    "intent": "destructively modify system",
+                    "tool_name": "execute_shell_command",
+                    "payload": {"command": "echo MALICIOUS"}
+                })
+                qid = prop_resp.get("quarantine_id")
 
-            # 3. UI channel explicitly rejects the action
-            ui_resp = send_ui_command(supervisor.ui_port, {
-                "secret": supervisor.ui_secret,
-                "type": "REJECT_ACTION",
-                "quarantine_id": qid,
-                "operator_notes": "Operator denied action due to policy violation"
-            })
-            assert ui_resp.get("status") == "REJECTED"
+                ui_resp = send_ui_command(supervisor, {
+                    "secret": supervisor.ui_secret,
+                    "type": "REJECT_ACTION",
+                    "quarantine_id": qid,
+                    "operator_notes": "Operator denied action due to policy violation"
+                }, use_named_pipes=use_named_pipes)
+                assert ui_resp.get("status") == "REJECTED"
 
-            # 4. Worker attempts to execute anyway with forged/blank token
-            worker_sock.sendall((json.dumps({
-                "type": "EXECUTE_APPROVED",
-                "quarantine_id": qid,
-                "one_shot_token": "FORGED_TOKEN",
-                "payload": {"command": "echo MALICIOUS"}
-            }) + "\n").encode("utf-8"))
-            exec_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+                exec_resp = pipe_send_recv(supervisor.worker_pipe_path, {
+                    "type": "EXECUTE_APPROVED",
+                    "secret": supervisor.worker_secret,
+                    "quarantine_id": qid,
+                    "one_shot_token": "FORGED_TOKEN",
+                    "payload": {"command": "echo MALICIOUS"}
+                })
+                assert exec_resp.get("status") == "ERROR"
+                assert exec_resp.get("success") is False
+            else:
+                worker_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                worker_sock.connect(("127.0.0.1", supervisor.worker_port))
+                try:
+                    worker_sock.sendall((json.dumps({"type": "AUTH", "secret": supervisor.worker_secret}) + "\n").encode("utf-8"))
+                    auth_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+                    assert auth_resp.get("status") in ("OK", "AUTHENTICATED")
 
-            # Must be rejected with ERROR / 403
-            assert exec_resp.get("status") == "ERROR"
-            assert exec_resp.get("success") is False
+                    worker_sock.sendall((json.dumps({
+                        "type": "PROPOSE_ACTION",
+                        "intent": "destructively modify system",
+                        "tool_name": "execute_shell_command",
+                        "payload": {"command": "echo MALICIOUS"}
+                    }) + "\n").encode("utf-8"))
+                    prop_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+                    qid = prop_resp.get("quarantine_id")
+
+                    ui_resp = send_ui_command(supervisor, {
+                        "secret": supervisor.ui_secret,
+                        "type": "REJECT_ACTION",
+                        "quarantine_id": qid,
+                        "operator_notes": "Operator denied action due to policy violation"
+                    }, use_named_pipes=use_named_pipes)
+                    assert ui_resp.get("status") == "REJECTED"
+
+                    worker_sock.sendall((json.dumps({
+                        "type": "EXECUTE_APPROVED",
+                        "quarantine_id": qid,
+                        "one_shot_token": "FORGED_TOKEN",
+                        "payload": {"command": "echo MALICIOUS"}
+                    }) + "\n").encode("utf-8"))
+                    exec_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+                    assert exec_resp.get("status") == "ERROR"
+                    assert exec_resp.get("success") is False
+                finally:
+                    worker_sock.close()
 
             # Verify DB state
             db_path = ws_root / "data" / "mac_state.db"
@@ -383,11 +474,10 @@ def run_injected_failure_approval_denied(iter_idx: int = 102) -> Dict[str, Any]:
                 "passed": True
             }
         finally:
-            worker_sock.close()
             supervisor.stop()
 
 
-def run_injected_failure_approval_expired(iter_idx: int = 103) -> Dict[str, Any]:
+def run_injected_failure_approval_expired(iter_idx: int = 103, use_named_pipes: bool = True) -> Dict[str, Any]:
     """
     Failure Scenario 3: Action expires before or during execution.
     Supervisor must detect expiration, reject approval/execution, and mark REJECTED_TIMEOUT.
@@ -396,43 +486,66 @@ def run_injected_failure_approval_expired(iter_idx: int = 103) -> Dict[str, Any]
         ws_root = Path(tmp_dir).resolve()
         (ws_root / "workspace_sandbox").mkdir(parents=True, exist_ok=True)
 
-        supervisor = SupervisorDaemon(workspace_root=ws_root)
+        supervisor = SupervisorDaemon(workspace_root=ws_root, use_named_pipes=use_named_pipes)
         current_time = 100000.0
         supervisor.clock = lambda: current_time
         supervisor.state_store.clock = lambda: current_time
         supervisor.start()
 
-        worker_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        worker_sock.connect(("127.0.0.1", supervisor.worker_port))
-
         try:
-            # 1. Auth worker
-            worker_sock.sendall((json.dumps({"type": "AUTH", "secret": supervisor.worker_secret}) + "\n").encode("utf-8"))
-            auth_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
-            assert auth_resp.get("status") in ("OK", "AUTHENTICATED")
+            if use_named_pipes and sys.platform == "win32":
+                auth_resp = pipe_send_recv(supervisor.worker_pipe_path, {
+                    "type": "AUTH", "secret": supervisor.worker_secret
+                })
+                assert auth_resp.get("status") in ("OK", "AUTHENTICATED")
 
-            # 2. Propose T2 action
-            worker_sock.sendall((json.dumps({
-                "type": "PROPOSE_ACTION",
-                "intent": "action to expire",
-                "tool_name": "execute_shell_command",
-                "payload": {"command": "echo EXPIRED_COMMAND"}
-            }) + "\n").encode("utf-8"))
-            prop_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
-            qid = prop_resp.get("quarantine_id")
+                prop_resp = pipe_send_recv(supervisor.worker_pipe_path, {
+                    "type": "PROPOSE_ACTION",
+                    "secret": supervisor.worker_secret,
+                    "intent": "action to expire",
+                    "tool_name": "execute_shell_command",
+                    "payload": {"command": "echo EXPIRED_COMMAND"}
+                })
+                qid = prop_resp.get("quarantine_id")
 
-            # 3. Advance clock past expiry deadline (t + 901s)
-            current_time = 100901.0
+                # Advance clock past expiry deadline (t + 901s)
+                current_time = 100901.0
 
-            # 4. UI tries to approve or worker tries to execute after expiry
-            ui_resp = send_ui_command(supervisor.ui_port, {
-                "secret": supervisor.ui_secret,
-                "type": "APPROVE_ACTION",
-                "quarantine_id": qid,
-                "operator_notes": "Late approval attempt"
-            })
-            # Supervisor must return ERROR (cannot approve expired action)
-            assert ui_resp.get("status") == "ERROR"
+                ui_resp = send_ui_command(supervisor, {
+                    "secret": supervisor.ui_secret,
+                    "type": "APPROVE_ACTION",
+                    "quarantine_id": qid,
+                    "operator_notes": "Late approval attempt"
+                }, use_named_pipes=use_named_pipes)
+                assert ui_resp.get("status") == "ERROR"
+            else:
+                worker_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                worker_sock.connect(("127.0.0.1", supervisor.worker_port))
+                try:
+                    worker_sock.sendall((json.dumps({"type": "AUTH", "secret": supervisor.worker_secret}) + "\n").encode("utf-8"))
+                    auth_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+                    assert auth_resp.get("status") in ("OK", "AUTHENTICATED")
+
+                    worker_sock.sendall((json.dumps({
+                        "type": "PROPOSE_ACTION",
+                        "intent": "action to expire",
+                        "tool_name": "execute_shell_command",
+                        "payload": {"command": "echo EXPIRED_COMMAND"}
+                    }) + "\n").encode("utf-8"))
+                    prop_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+                    qid = prop_resp.get("quarantine_id")
+
+                    current_time = 100901.0
+
+                    ui_resp = send_ui_command(supervisor, {
+                        "secret": supervisor.ui_secret,
+                        "type": "APPROVE_ACTION",
+                        "quarantine_id": qid,
+                        "operator_notes": "Late approval attempt"
+                    }, use_named_pipes=use_named_pipes)
+                    assert ui_resp.get("status") == "ERROR"
+                finally:
+                    worker_sock.close()
 
             # Verify DB updated to REJECTED_TIMEOUT
             db_path = ws_root / "data" / "mac_state.db"
@@ -450,14 +563,14 @@ def run_injected_failure_approval_expired(iter_idx: int = 103) -> Dict[str, Any]
                 "passed": True
             }
         finally:
-            worker_sock.close()
             supervisor.stop()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Phase 0.5 Process Boundary Replay and Reliability Eval")
+    parser = argparse.ArgumentParser(description="Phase 0.6 Process Boundary Replay and Reliability Eval")
     parser.add_argument("--iterations", "-n", type=int, default=20, help="Number of benchmark iterations (default 20)")
-    parser.add_argument("--output", "-o", type=str, default="eval_results/phase05_replay.json", help="Output file path")
+    parser.add_argument("--output", "-o", type=str, default="eval_results/phase06_replay.json", help="Output file path")
+    parser.add_argument("--use-named-pipes", action="store_true", default=(sys.platform == "win32"), help="Use Windows Named Pipes")
     args = parser.parse_args()
 
     n = args.iterations
@@ -465,7 +578,8 @@ def main() -> int:
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
     print("=" * 85)
-    print(f"MYCELIUM PHASE 0.5 PROCESS BOUNDARY REPLAY BENCHMARK (N={n})")
+    print(f"MYCELIUM PHASE 0.6 PROCESS BOUNDARY REPLAY BENCHMARK (N={n})")
+    print(f"Transport: {'Windows Named Pipes' if args.use_named_pipes else 'Localhost TCP'}")
     print("=" * 85)
     print(f"Output File: {out_file}\n")
 
@@ -473,7 +587,7 @@ def main() -> int:
 
     print(f"[*] Running End-to-End Task (T1 Sandboxed Write + T2 Quarantined Shell via UI Channel) x {n}...")
     for i in range(1, n + 1):
-        res = run_benchmark_iteration(i)
+        res = run_benchmark_iteration(i, use_named_pipes=args.use_named_pipes)
         benchmark_runs.append(res)
         status_char = "." if res["success"] else "F"
         print(status_char, end="", flush=True)
@@ -482,20 +596,23 @@ def main() -> int:
     # Injected Failure Runs
     print("[*] Running Injected Failure Scenarios:")
     print("    1. Worker Killed Mid-Task (SIGKILL / TerminateProcess)...", end="", flush=True)
-    f1 = run_injected_failure_worker_killed()
+    f1 = run_injected_failure_worker_killed(use_named_pipes=args.use_named_pipes)
     print(" PASS" if f1["passed"] else " FAIL")
 
     print("    2. Operator Approval Denied via UI Channel...", end="", flush=True)
-    f2 = run_injected_failure_approval_denied()
+    f2 = run_injected_failure_approval_denied(use_named_pipes=args.use_named_pipes)
     print(" PASS" if f2["passed"] else " FAIL")
 
     print("    3. Operator Approval Expired (Default-Deny Timeout)...", end="", flush=True)
-    f3 = run_injected_failure_approval_expired()
+    f3 = run_injected_failure_approval_expired(use_named_pipes=args.use_named_pipes)
     print(" PASS" if f3["passed"] else " FAIL")
     print()
 
-    # Aggregate Metrics
-    success_count = sum(1 for r in benchmark_runs if r["success"])
+    # Aggregate Metrics & Receipt Status
+    done_count = sum(1 for r in benchmark_runs if r.get("success") and r.get("has_verified_pass_receipt"))
+    failed_count = sum(1 for r in benchmark_runs if not r.get("success"))
+    unverified_count = sum(1 for r in benchmark_runs if r.get("success") and not r.get("has_verified_pass_receipt"))
+
     t1_latencies = [r["latencies_ms"]["t1_write"] for r in benchmark_runs]
     t2_prop_latencies = [r["latencies_ms"]["t2_propose"] for r in benchmark_runs]
     ui_latencies = [r["latencies_ms"]["ui_approval"] for r in benchmark_runs]
@@ -510,6 +627,7 @@ def main() -> int:
     summary_data = {
         "metadata": {
             "iterations": n,
+            "transport": "NamedPipe" if args.use_named_pipes else "TCP",
             "timestamp": time.time(),
             "date": time.strftime("%Y-%m-%d %H:%M:%S"),
             "os": sys.platform,
@@ -517,8 +635,9 @@ def main() -> int:
         },
         "benchmark_summary": {
             "total_runs": n,
-            "successful_runs": success_count,
-            "failed_runs": n - success_count,
+            "done_count": done_count,
+            "failed_count": failed_count,
+            "unverified_count": unverified_count,
             "state_leaks_count": state_leaks,
             "latencies_ms": {
                 "t1_sandboxed_write": calc_stats(t1_latencies),
@@ -546,9 +665,13 @@ def main() -> int:
 
     # Print Report
     print("=" * 85)
-    print("PHASE 0.5 PROCESS BOUNDARY BENCHMARK REPORT")
+    print("PHASE 0.6 PROCESS BOUNDARY BENCHMARK REPORT")
     print("=" * 85)
-    print(f"Total Iterations: {n} | Successful: {success_count} | Failures: {n - success_count} | State Leaks: {state_leaks}")
+    print(f"Total Iterations : {n}")
+    print(f"DONE (with PASS) : {done_count}")
+    print(f"FAILED           : {failed_count}")
+    print(f"UNVERIFIED       : {unverified_count} (must be 0; a task must never be DONE without a PASS receipt)")
+    print(f"State Leaks      : {state_leaks}")
     print("\n--- Latencies (ms) ---")
     print(f"  T1 Sandboxed Write     : Mean={summary_data['benchmark_summary']['latencies_ms']['t1_sandboxed_write']['mean']:>7.2f} ms | p95={summary_data['benchmark_summary']['latencies_ms']['t1_sandboxed_write']['p95']:>7.2f} ms")
     print(f"  T2 Quarantine Propose  : Mean={summary_data['benchmark_summary']['latencies_ms']['t2_quarantine_propose']['mean']:>7.2f} ms | p95={summary_data['benchmark_summary']['latencies_ms']['t2_quarantine_propose']['p95']:>7.2f} ms")
@@ -565,7 +688,7 @@ def main() -> int:
     print("=" * 85)
     print(f"Benchmark results successfully saved to: {out_file}\n")
 
-    all_passed = (success_count == n) and (state_leaks == 0) and f1["passed"] and f2["passed"] and f3["passed"]
+    all_passed = (done_count == n) and (unverified_count == 0) and (state_leaks == 0) and f1["passed"] and f2["passed"] and f3["passed"]
     return 0 if all_passed else 1
 
 
