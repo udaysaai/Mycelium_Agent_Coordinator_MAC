@@ -17,6 +17,7 @@ Covers Part C:
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,11 @@ def boundary_env():
             "workspace": ws_root
         }
 
+        if attacker.sock:
+            try:
+                attacker.sock.close()
+            except Exception:
+                pass
         sup.stop()
 
 

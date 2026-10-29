@@ -57,7 +57,9 @@ class MyceliumCoordinator:
         mcp_gateway: Optional[MCPGateway] = None,
         human_confirmation_hook: Optional[Callable[[HOLQuarantineEvent], bool]] = None,
         state_store: Optional[StateStore] = None,
-        key_file_path: Optional[str | Path] = None
+        key_file_path: Optional[str | Path] = None,
+        policy_engine: Optional[PolicyEngine] = None,
+        verifier: Optional[DeterministicVerifier] = None
     ):
         """
         Initialize the Mycelium Coordinator.
@@ -67,6 +69,8 @@ class MyceliumCoordinator:
         :param human_confirmation_hook: Callback invoked when an action is quarantined.
         :param state_store: Durable SQLite persistence for contracts, quarantines, and receipts.
         :param key_file_path: External path for HMAC signing key.
+        :param policy_engine: PolicyEngine instance.
+        :param verifier: DeterministicVerifier instance.
         """
         self.daemon = local_daemon or LocalExecDaemon()
         self.gateway = mcp_gateway or MCPGateway()
@@ -76,11 +80,11 @@ class MyceliumCoordinator:
         self.state_store = state_store or StateStore(
             db_path=self.daemon.workspace_root / "data" / "mac_state.db"
         )
-        self.policy_engine = PolicyEngine(
+        self.policy_engine = policy_engine or PolicyEngine(
             sandbox_dirname="workspace_sandbox",
             key_file_path=key_file_path
         )
-        self.verifier = DeterministicVerifier(
+        self.verifier = verifier or DeterministicVerifier(
             workspace_root=self.daemon.workspace_root,
             state_store=self.state_store
         )

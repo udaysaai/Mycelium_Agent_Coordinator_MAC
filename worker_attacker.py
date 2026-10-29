@@ -51,6 +51,8 @@ class WorkerAttacker:
         while "\n" not in buf:
             chunk = sock.recv(4096).decode("utf-8")
             if not chunk:
+                if not buf:
+                    raise ConnectionResetError("Supervisor connection closed abruptly (crash/shutdown).")
                 break
             buf += chunk
         line = buf.split("\n")[0].strip()
@@ -129,6 +131,7 @@ class WorkerAttacker:
         write_succeeded = False
         error_msg = ""
 
+        conn = None
         try:
             conn = sqlite3.connect(str(self.db_path), timeout=2.0)
             conn.row_factory = sqlite3.Row
@@ -144,10 +147,15 @@ class WorkerAttacker:
                 (quarantine_id,)
             )
             conn.commit()
-            conn.close()
             write_succeeded = True
         except Exception as e:
             error_msg = str(e)
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
         return {
             "db_readable": db_readable,

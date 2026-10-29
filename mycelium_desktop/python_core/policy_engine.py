@@ -86,33 +86,32 @@ class PolicyEngine:
     def __init__(
         self,
         sandbox_dirname: str = "workspace_sandbox",
-        key_file_path: Optional[str | Path] = None
+        key_file_path: Optional[str | Path] = None,
+        signing_key: Optional[bytes] = None
     ):
         self.sandbox_dirname = sandbox_dirname.replace("\\", "/").strip("/")
-        if key_file_path is None:
-            self.key_file_path = Path.home() / ".mycelium" / "mac_signing.key"
-        else:
-            self.key_file_path = Path(key_file_path).resolve()
-
-        self._master_key: bytes = self._load_or_create_master_key()
-
-    def _load_or_create_master_key(self) -> bytes:
-        """Load HMAC-SHA256 signing key from external protected file outside DB."""
-        try:
-            if self.key_file_path.exists():
-                key = self.key_file_path.read_bytes()
-                if len(key) >= 32:
-                    return key
-            self.key_file_path.parent.mkdir(parents=True, exist_ok=True)
-            key = secrets.token_bytes(32)
-            self.key_file_path.write_bytes(key)
+        # Ephemeral in-memory signing key: NEVER written to disk, never in env or argv
+        if signing_key is not None and len(signing_key) >= 32:
+            self._master_key = bytes(signing_key)
+        elif key_file_path is not None and Path(key_file_path).exists():
             try:
-                os.chmod(self.key_file_path, 0o600)
+                self._master_key = Path(key_file_path).read_bytes()[:32]
+            except Exception:
+                self._master_key = secrets.token_bytes(32)
+        else:
+            self._master_key = secrets.token_bytes(32)
+
+        # Migration: Purge legacy ~/.mycelium/mac_signing.key if present
+        legacy_key_path = Path.home() / ".mycelium" / "mac_signing.key"
+        if legacy_key_path.exists():
+            try:
+                legacy_key_path.unlink()
             except Exception:
                 pass
-            return key
-        except Exception:
-            return secrets.token_bytes(32)
+
+    def get_signing_key(self) -> bytes:
+        """Access in-memory signing key (supervisor internal use only)."""
+        return self._master_key
 
     def generate_hmac_token(self, quarantine_id: str, call_hash: str, expires_at: float) -> str:
         """Produce HMAC-SHA256 signature binding quarantine ID, call hash, and expiry."""
