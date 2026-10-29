@@ -24,18 +24,15 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 WORKSPACE_ROOT = Path(__file__).resolve().parent
 
 VERIFIER_PATH = WORKSPACE_ROOT / "verifier.py"
-MIRROR_VERIFIER_PATH = WORKSPACE_ROOT / "mycelium_desktop" / "python_core" / "verifier.py"
-
 POLICY_PATH = WORKSPACE_ROOT / "policy_engine.py"
-MIRROR_POLICY_PATH = WORKSPACE_ROOT / "mycelium_desktop" / "python_core" / "policy_engine.py"
-
 COORDINATOR_PATH = WORKSPACE_ROOT / "coordinator.py"
-MIRROR_COORDINATOR_PATH = WORKSPACE_ROOT / "mycelium_desktop" / "python_core" / "coordinator.py"
-
 STATE_STORE_PATH = WORKSPACE_ROOT / "state_store.py"
-MIRROR_STATE_STORE_PATH = WORKSPACE_ROOT / "mycelium_desktop" / "python_core" / "state_store.py"
-
 SUPERVISOR_PATH = WORKSPACE_ROOT / "supervisor.py"
+
+MIRROR_VERIFIER_PATH = None
+MIRROR_POLICY_PATH = None
+MIRROR_COORDINATOR_PATH = None
+MIRROR_STATE_STORE_PATH = None
 
 
 class Mutation(NamedTuple):
