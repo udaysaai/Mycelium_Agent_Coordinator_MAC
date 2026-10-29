@@ -159,7 +159,7 @@ class LocalExecDaemon:
                     requestId=req_id,
                     success=False,
                     stdout=stdout or "",
-                    stderr=f"Execution timeout exceeded ({timeout_seconds}s limit). Process safely terminated.",
+                    stderr=f"Execution exceeded maximum allowed timeout ({timeout_seconds}s limit). Process safely terminated.",
                     exitCode=-1,
                     latencyMs=latency_ms
                 )

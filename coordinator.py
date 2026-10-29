@@ -190,7 +190,7 @@ class MyceliumCoordinator:
             safety_tier=SafetyTier.READ_ONLY,
             schema_model=SystemDiagnosticsParams,
             handler=_get_system_diagnostics,
-            tags=["system", "status", "metrics", "health", "diagnostics", "host", "specs", "cpu"]
+            tags=["system", "status", "metrics", "health", "diagnostics", "host", "specs", "cpu", "telemetry", "platform", "node"]
         )
 
         # 6. List Workspace Directory (T0: READ_ONLY)
@@ -296,6 +296,33 @@ class MyceliumCoordinator:
             tool_name = best_tool_match.tool.name
         elif not tool_name and "command" in request.payload:
             tool_name = "execute_shell_command"
+
+        # T0 Fast-Path for idempotent READ_ONLY inspection requests
+        if request.safetyTier == SafetyTier.READ_ONLY and not request.payload.get("command"):
+            raw_output, exit_code, stdout, stderr = self._run_actuator(request, tool_name, best_tool_match)
+            effective_tool = tool_name or (best_tool_match.tool.name if best_tool_match else "action")
+            receipt = self.verifier.verify_action(
+                tool_name=effective_tool,
+                payload=request.payload,
+                raw_output=raw_output,
+                request_id=request.requestId,
+                contract=None,
+                persist=False
+            )
+            total_latency_ms = round((time.perf_counter() - dispatch_start) * 1000.0, 3)
+            result = ExecutionResult(
+                requestId=request.requestId,
+                contractId=None,
+                success=(exit_code == 0),
+                stdout=stdout or (str(raw_output) if raw_output is not None else ""),
+                stderr=stderr,
+                exitCode=exit_code,
+                latencyMs=total_latency_ms,
+                tierLevel=TierLevel.T0,
+                receipt=receipt
+            )
+            self.execution_audit.append(result)
+            return result
 
         # -------------------------------------------------------------------
         # Step 3: Plane 3 - Policy Engine & Tiered Safety Boundaries (T0/T1/T2)

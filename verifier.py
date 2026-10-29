@@ -53,7 +53,8 @@ class DeterministicVerifier:
         payload: Dict[str, Any],
         raw_output: Any,
         request_id: str,
-        contract: Optional[TaskContract] = None
+        contract: Optional[TaskContract] = None,
+        persist: bool = True
     ) -> VerificationReceipt:
         """
         Execute out-of-band state verification for a completed tool action.
@@ -199,6 +200,6 @@ class DeterministicVerifier:
             timestamp=timestamp,
             verifierNotes="PASS: Deterministic inspection read completed."
         )
-        if self.state_store:
+        if self.state_store and persist:
             self.state_store.save_receipt(receipt)
         return receipt
