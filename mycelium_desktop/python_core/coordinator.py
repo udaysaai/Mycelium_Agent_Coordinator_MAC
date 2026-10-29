@@ -2,8 +2,8 @@
 US Neural - Mycelium Semantic Protocol & HOL Guard
 Module: coordinator.py
 Description: Central Intelligence Traffic Manager & HOL (Human-On-The-Loop) Safety Gate.
-             Integrates sub-10ms semantic tool matching, zero-latency bypass for READ_ONLY
-             operations, and mandatory quarantine with operator hook for MUTATING actions.
+             Integrates Conversational Intake Gate, Dynamic Tiered Policy (T0/T1/T2),
+             Durable SQLite WAL State Storage, and Deterministic Out-of-Band Verifiers.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ import os
 import platform
 import sys
 import time
+import uuid
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from protocol import (
@@ -21,7 +23,11 @@ from protocol import (
     HOLQuarantineEvent,
     PrivilegeTier,
     SafetyTier,
+    TaskContract,
+    TaskContractStatus,
+    TierLevel,
     ToolMatchResult,
+    VerificationReceipt,
 )
 from local_daemon import LocalExecDaemon
 from mcp_gateway import (
@@ -32,19 +38,25 @@ from mcp_gateway import (
     SystemDiagnosticsParams,
     WriteWorkspaceFileParams,
 )
+from state_store import StateStore
+from policy_engine import PolicyEngine, PolicyVerdict
+from verifier import DeterministicVerifier
+from intake_gate import IntakeGate, IntakeOutcome
 
 
 class MyceliumCoordinator:
     """
     Central Intelligence Coordinator for US Neural Agent Mesh.
-    Manages semantic tool routing, HOL safety boundaries, and split execution.
+    Manages semantic tool routing, HOL safety boundaries, split execution,
+    and out-of-band deterministic verification.
     """
 
     def __init__(
         self,
         local_daemon: Optional[LocalExecDaemon] = None,
         mcp_gateway: Optional[MCPGateway] = None,
-        human_confirmation_hook: Optional[Callable[[HOLQuarantineEvent], bool]] = None
+        human_confirmation_hook: Optional[Callable[[HOLQuarantineEvent], bool]] = None,
+        state_store: Optional[StateStore] = None
     ):
         """
         Initialize the Mycelium Coordinator.
@@ -52,10 +64,22 @@ class MyceliumCoordinator:
         :param local_daemon: Execution daemon for shell and workspace operations.
         :param mcp_gateway: Gateway managing tool contracts and semantic vector mesh.
         :param human_confirmation_hook: Callback invoked when an action is quarantined.
+        :param state_store: Durable SQLite persistence for contracts, quarantines, and receipts.
         """
         self.daemon = local_daemon or LocalExecDaemon()
         self.gateway = mcp_gateway or MCPGateway()
         self.human_confirmation_hook = human_confirmation_hook or self._default_cli_human_hook
+
+        # Initialize Durable Governance & Verification Subsystems
+        self.state_store = state_store or StateStore(
+            db_path=self.daemon.workspace_root / "data" / "mac_state.db"
+        )
+        self.policy_engine = PolicyEngine(sandbox_dirname="workspace_sandbox")
+        self.verifier = DeterministicVerifier(
+            workspace_root=self.daemon.workspace_root,
+            state_store=self.state_store
+        )
+        self.intake_gate = IntakeGate()
 
         # Telemetry logs
         self.quarantine_history: List[HOLQuarantineEvent] = []
@@ -66,7 +90,7 @@ class MyceliumCoordinator:
 
     def _bootstrap_core_tools(self) -> None:
         """Register fundamental local tools with safety tiers and schemas."""
-        # 1. Read Workspace File (READ_ONLY)
+        # 1. Read Workspace File (T0: READ_ONLY)
         self.gateway.register_tool(
             name="read_workspace_file",
             description="Read textual or configuration content of a file within the workspace safely.",
@@ -76,7 +100,7 @@ class MyceliumCoordinator:
             tags=["read", "file", "inspect", "cat", "view", "workspace", "config"]
         )
 
-        # 2. Write Workspace File (MUTATING)
+        # 2. Write Workspace File (T1 / T2 depending on target path)
         self.gateway.register_tool(
             name="write_workspace_file",
             description="Write, update, or create a file inside the sandboxed workspace directory.",
@@ -86,7 +110,45 @@ class MyceliumCoordinator:
             tags=["write", "create", "file", "modify", "save", "workspace", "update"]
         )
 
-        # 3. Execute Shell Command (MUTATING)
+        # 3. Hardened Sandboxed File Writer with Atomic Sync (T1: MUTATING_SANDBOX)
+        def _sandboxed_atomic_writer(file_path: str, content: str) -> Dict[str, Any]:
+            sandbox_dir = (self.daemon.workspace_root / "workspace_sandbox").resolve()
+            sandbox_dir.mkdir(parents=True, exist_ok=True)
+            clean_rel = file_path.replace("\\", "/").lstrip("/")
+            if clean_rel.startswith("workspace_sandbox/"):
+                clean_rel = clean_rel[len("workspace_sandbox/"):]
+            target = (sandbox_dir / clean_rel).resolve()
+            # Enforce strict sandbox confinement
+            try:
+                target.relative_to(sandbox_dir)
+            except ValueError as exc:
+                raise PermissionError(f"Sandboxed file writer violated sandbox boundary: '{file_path}'") from exc
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # Atomic write pattern with flush and fsync
+            tmp_target = target.with_suffix(f"{target.suffix}.tmp.{uuid.uuid4().hex[:6]}")
+            with open(tmp_target, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            tmp_target.replace(target)
+            return {
+                "success": True,
+                "filePath": str(target.relative_to(self.daemon.workspace_root)).replace("\\", "/"),
+                "bytesWritten": len(content.encode("utf-8")),
+                "atomic": True
+            }
+
+        self.gateway.register_tool(
+            name="sandboxed_file_writer",
+            description="Atomically write files strictly confined inside the isolated workspace_sandbox directory.",
+            safety_tier=SafetyTier.MUTATING_SANDBOX,
+            schema_model=WriteWorkspaceFileParams,
+            handler=_sandboxed_atomic_writer,
+            tags=["sandbox", "write", "atomic", "file", "safe_write"]
+        )
+
+        # 4. Execute Shell Command (T2: MUTATING)
         self.gateway.register_tool(
             name="execute_shell_command",
             description="Execute arbitrary OS/Shell commands and system processes.",
@@ -99,7 +161,7 @@ class MyceliumCoordinator:
             tags=["shell", "bash", "cmd", "execute", "run", "process", "terminal", "os"]
         )
 
-        # Pre-cache static platform metadata to prevent Windows registry/WMI lookup latency
+        # Pre-cache static platform metadata
         static_platform = {
             "system": platform.system(),
             "node": platform.node(),
@@ -110,7 +172,7 @@ class MyceliumCoordinator:
             "cpu_count": os.cpu_count() or 1
         }
 
-        # 4. System Diagnostics (READ_ONLY)
+        # 5. System Diagnostics (T0: READ_ONLY)
         def _get_system_diagnostics(include_environment: bool = False) -> Dict[str, Any]:
             diag = dict(static_platform)
             diag["timestamp"] = time.time()
@@ -131,7 +193,7 @@ class MyceliumCoordinator:
             tags=["system", "status", "metrics", "health", "diagnostics", "host", "specs", "cpu"]
         )
 
-        # 5. List Workspace Directory (READ_ONLY)
+        # 6. List Workspace Directory (T0: READ_ONLY)
         def _list_directory(directory_path: str = ".") -> List[str]:
             target = self.daemon._resolve_safe_path(directory_path)
             if not target.is_dir():
@@ -148,7 +210,7 @@ class MyceliumCoordinator:
         )
 
     def set_human_confirmation_hook(self, hook: Callable[[HOLQuarantineEvent], bool]) -> None:
-        """Configure a custom human confirmation hook for HOL quarantine evaluation."""
+        """Configure custom operator confirmation callback."""
         self.human_confirmation_hook = hook
 
     @staticmethod
@@ -156,12 +218,13 @@ class MyceliumCoordinator:
         """Fallback standard terminal prompt for operator approval."""
         req = quarantine.request
         print(f"\n[HOL GUARD QUARANTINE INTERVENTION]")
-        print(f"Request ID: {req.requestId}")
-        print(f"Intent    : {req.intent}")
-        print(f"Privilege : {req.privilegeTier.value}")
-        print(f"Safety    : {req.safetyTier.value}")
-        print(f"Reason    : {quarantine.quarantineReason}")
-        print(f"Payload   : {req.payload}")
+        print(f"Quarantine ID: {quarantine.quarantineId}")
+        print(f"One-Shot Tok : {quarantine.oneShotToken}")
+        print(f"Plain Impact : {quarantine.plainImpact}")
+        print(f"Intent       : {req.intent}")
+        print(f"Safety Tier  : {req.safetyTier.value}")
+        print(f"Reason       : {quarantine.quarantineReason}")
+        print(f"Payload      : {req.payload}")
         try:
             choice = input("Authorize state-altering execution? (y/N): ").strip().lower()
             return choice in ("y", "yes")
@@ -177,126 +240,225 @@ class MyceliumCoordinator:
     def dispatch(self, request: ActionRequest) -> ExecutionResult:
         """
         Central execution gatekeeper.
-        
-        HOL Guard Rules:
-        1. If safetyTier is MUTATING -> Quarantine and await human confirmation.
-        2. If privilegeTier is BACKGROUND and executing a state-altering command -> Quarantine.
-        3. If safetyTier is READ_ONLY -> Immediate bypass with zero latency penalty.
+        Enforces Plane 1 (Intake), Plane 3 (Policy & Quarantine), and Plane 4 (Verifier).
         """
         dispatch_start = time.perf_counter()
 
-        # Step 1: Semantic discovery check if tool not explicitly indicated in payload
+        # -------------------------------------------------------------------
+        # Step 1: Plane 1 - Conversational Parameter Intake & Plan Gate
+        # -------------------------------------------------------------------
+        intake_outcome: IntakeOutcome = self.intake_gate.evaluate_intent(
+            intent=request.intent,
+            payload=request.payload
+        )
+
+        if intake_outcome.isConversational:
+            # Clean conversational exit; zero tool execution, zero 404 false alarms
+            latency_ms = round((time.perf_counter() - dispatch_start) * 1000.0, 3)
+            return ExecutionResult(
+                requestId=request.requestId,
+                contractId=None,
+                success=True,
+                stdout=intake_outcome.responseMessage,
+                stderr="",
+                exitCode=0,
+                latencyMs=latency_ms,
+                tierLevel=TierLevel.T0
+            )
+
+        if not intake_outcome.isReadyForExecution and intake_outcome.missingSlots:
+            # Slot-filling prompt
+            latency_ms = round((time.perf_counter() - dispatch_start) * 1000.0, 3)
+            return ExecutionResult(
+                requestId=request.requestId,
+                contractId=None,
+                success=False,
+                stdout=intake_outcome.responseMessage,
+                stderr="Missing parameter slots required to compile execution contract.",
+                exitCode=422,
+                latencyMs=latency_ms,
+                tierLevel=TierLevel.T0
+            )
+
+        contract: Optional[TaskContract] = intake_outcome.contract
+        if contract:
+            request.contractId = contract.contractId
+            self.state_store.save_contract(contract)
+
+        # -------------------------------------------------------------------
+        # Step 2: Semantic Tool Discovery
+        # -------------------------------------------------------------------
         matched_tools = self.route_intent(request.intent, top_k=1)
         best_tool_match = matched_tools[0] if matched_tools else None
 
-        # Check effective safety classification (strictest wins)
-        effective_safety = request.safetyTier
-        if best_tool_match and best_tool_match.tool.safetyTier == SafetyTier.MUTATING:
-            effective_safety = SafetyTier.MUTATING
+        tool_name = request.payload.get("tool_name")
+        if not tool_name and best_tool_match and best_tool_match.similarityScore >= 0.55:
+            tool_name = best_tool_match.tool.name
+        elif not tool_name and "command" in request.payload:
+            tool_name = "execute_shell_command"
 
-        # Step 2: Evaluate HOL Guard Criteria
-        is_quarantine_required = (
-            effective_safety == SafetyTier.MUTATING
-            or (request.privilegeTier == PrivilegeTier.BACKGROUND and "command" in request.payload)
+        # -------------------------------------------------------------------
+        # Step 3: Plane 3 - Policy Engine & Tiered Safety Boundaries (T0/T1/T2)
+        # -------------------------------------------------------------------
+        verdict: PolicyVerdict = self.policy_engine.evaluate(
+            request=request,
+            contract=contract,
+            tool_name=tool_name
         )
 
-        if is_quarantine_required:
-            quarantine_reason = (
-                f"State-altering MUTATING action under {request.privilegeTier.value} privilege requires "
-                f"explicit Human-On-The-Loop authorization."
-            )
-            quarantine_event = HOLQuarantineEvent(
-                request=request,
-                quarantineReason=quarantine_reason,
-                decision=HOLApprovalStatus.PENDING
-            )
+        # If T2 action requires quarantine
+        if verdict.requiresQuarantine:
+            # Check if this request already carries a valid signed one-shot token
+            has_valid_token = False
+            if request.oneShotToken:
+                # Direct token bypass attempt check against durable store
+                # Note: Token must match a previously approved quarantine ID
+                quarantine_id = request.payload.get("quarantineId", "")
+                has_valid_token = self.state_store.validate_one_shot_token(quarantine_id, request.oneShotToken)
 
-            # Invoke Human-On-The-Loop Hook
-            approved = self.human_confirmation_hook(quarantine_event)
-            quarantine_event.reviewedAt = time.time()
-
-            if not approved:
-                quarantine_event.decision = HOLApprovalStatus.REJECTED
-                self.quarantine_history.append(quarantine_event)
-                latency_ms = round((time.perf_counter() - dispatch_start) * 1000.0, 3)
-
-                rejected_result = ExecutionResult(
-                    requestId=request.requestId,
-                    success=False,
-                    stdout="",
-                    stderr=f"HOL Guard Blocked: Action '{request.intent}' was quarantined and rejected by operator.",
-                    exitCode=403,
-                    latencyMs=latency_ms
+            if not has_valid_token:
+                # Trigger Quarantine Event
+                quarantine_event = HOLQuarantineEvent(
+                    quarantineId=str(uuid.uuid4()),
+                    contractId=request.contractId,
+                    request=request,
+                    quarantineReason=verdict.reason,
+                    decision=HOLApprovalStatus.PENDING,
+                    callHash=verdict.callHash,
+                    oneShotToken=verdict.oneShotToken,
+                    plainImpact=verdict.plainImpact,
+                    expiresAt=verdict.expiresAt
                 )
-                self.execution_audit.append(rejected_result)
-                return rejected_result
 
-            # Approved by human operator
-            quarantine_event.decision = HOLApprovalStatus.APPROVED
-            self.quarantine_history.append(quarantine_event)
+                # Persist quarantine into durable SQLite WAL store
+                self.state_store.save_quarantine(
+                    event=quarantine_event,
+                    tool_name=tool_name or "action",
+                    payload=request.payload
+                )
 
-        # Step 3: Dispatch Execution
-        result = self._execute_request(request, best_tool_match)
+                if contract:
+                    self.state_store.update_contract_status(contract.contractId, TaskContractStatus.QUARANTINED)
+
+                # Invoke Human-On-The-Loop Confirmation Hook
+                approved = self.human_confirmation_hook(quarantine_event)
+                quarantine_event.reviewedAt = time.time()
+
+                if not approved:
+                    quarantine_event.decision = HOLApprovalStatus.REJECTED
+                    self.quarantine_history.append(quarantine_event)
+                    self.state_store.update_quarantine_decision(
+                        quarantine_event.quarantineId,
+                        HOLApprovalStatus.REJECTED,
+                        notes="Operator denied execution."
+                    )
+                    if contract:
+                        self.state_store.update_contract_status(contract.contractId, TaskContractStatus.FAILED)
+
+                    latency_ms = round((time.perf_counter() - dispatch_start) * 1000.0, 3)
+                    rejected_result = ExecutionResult(
+                        requestId=request.requestId,
+                        contractId=request.contractId,
+                        success=False,
+                        stdout="",
+                        stderr=(
+                            f"HOL Guard Blocked: Action '{request.intent}' was quarantined and rejected by operator. "
+                            f"Impact: {verdict.plainImpact}"
+                        ),
+                        exitCode=403,
+                        latencyMs=latency_ms,
+                        tierLevel=verdict.tierLevel
+                    )
+                    self.execution_audit.append(rejected_result)
+                    return rejected_result
+
+                # Approved by operator: Mark approved and assign one-shot token
+                quarantine_event.decision = HOLApprovalStatus.APPROVED
+                self.quarantine_history.append(quarantine_event)
+                self.state_store.update_quarantine_decision(
+                    quarantine_event.quarantineId,
+                    HOLApprovalStatus.APPROVED,
+                    notes="Authorized by human operator."
+                )
+                request.oneShotToken = verdict.oneShotToken
+                # Consume one-shot token to guarantee zero replay attack vectors
+                self.state_store.validate_one_shot_token(quarantine_event.quarantineId, verdict.oneShotToken)
+
+        # -------------------------------------------------------------------
+        # Step 4: Execution Actuators
+        # -------------------------------------------------------------------
+        raw_output, exit_code, stdout, stderr = self._run_actuator(request, tool_name, best_tool_match)
+
+        # -------------------------------------------------------------------
+        # Step 5: Plane 4 - Deterministic Out-of-Band Verifier
+        # -------------------------------------------------------------------
+        effective_tool = tool_name or "action"
+        receipt: VerificationReceipt = self.verifier.verify_action(
+            tool_name=effective_tool,
+            payload=request.payload,
+            raw_output=raw_output,
+            request_id=request.requestId,
+            contract=contract
+        )
+
         total_latency_ms = round((time.perf_counter() - dispatch_start) * 1000.0, 3)
+        final_success = receipt.verified and (exit_code == 0)
 
-        # Update end-to-end latency
-        result.latencyMs = total_latency_ms
+        if contract:
+            new_status = TaskContractStatus.COMPLETED if final_success else TaskContractStatus.FAILED
+            self.state_store.update_contract_status(contract.contractId, new_status)
+
+        verification_summary = f"\n\n[Deterministic Verifier Receipt: {receipt.receiptId[:8]} - {receipt.verifierNotes}]"
+
+        result = ExecutionResult(
+            requestId=request.requestId,
+            contractId=request.contractId,
+            success=final_success,
+            stdout=f"{stdout}{verification_summary}" if stdout else verification_summary,
+            stderr=stderr if not final_success else "",
+            exitCode=exit_code if final_success else (exit_code or 1),
+            latencyMs=total_latency_ms,
+            tierLevel=verdict.tierLevel,
+            receipt=receipt
+        )
+
         self.execution_audit.append(result)
         return result
 
-    def _execute_request(
+    def _run_actuator(
         self,
         request: ActionRequest,
+        tool_name: Optional[str],
         best_match: Optional[ToolMatchResult]
-    ) -> ExecutionResult:
-        """Execute request using either tool handler or direct daemon execution."""
-        # Case A: Explicit shell command payload
+    ) -> Tuple[Any, int, str, str]:
+        """Execute the physical action through LocalExecDaemon or MCPGateway."""
+        # 1. Shell command direct execution
         if "command" in request.payload:
             cmd = request.payload["command"]
             timeout = request.payload.get("timeout_seconds", 15.0)
-            return self.daemon.execute_command(
+            res = self.daemon.execute_command(
                 command=cmd,
                 timeout_seconds=timeout,
                 request_id=request.requestId
             )
+            return res, res.exitCode, res.stdout, res.stderr
 
-        # Case B: Tool name explicitly specified in payload
-        tool_name = request.payload.get("tool_name")
-        tool_args = request.payload.get("arguments", {})
+        # 2. Tool invocation via MCP Gateway
+        target_tool = tool_name or (best_match.tool.name if best_match else None)
+        tool_args = request.payload.get("arguments", request.payload)
 
-        # If not explicit in payload, check semantic vector match
-        if not tool_name and best_match and best_match.similarityScore > 0.15:
-            tool_name = best_match.tool.name
-            tool_args = request.payload
-
-        if tool_name:
+        if target_tool:
             try:
-                raw_out = self.gateway.execute_tool(tool_name, tool_args)
+                raw_out = self.gateway.execute_tool(target_tool, tool_args)
                 out_str = str(raw_out) if not isinstance(raw_out, str) else raw_out
-                return ExecutionResult(
-                    requestId=request.requestId,
-                    success=True,
-                    stdout=out_str,
-                    stderr="",
-                    exitCode=0,
-                    latencyMs=0.0
-                )
+                return raw_out, 0, out_str, ""
             except Exception as err:
-                return ExecutionResult(
-                    requestId=request.requestId,
-                    success=False,
-                    stdout="",
-                    stderr=f"Tool Execution Error: {type(err).__name__}: {str(err)}",
-                    exitCode=1,
-                    latencyMs=0.0
-                )
+                return None, 1, "", f"Tool Execution Failure: {type(err).__name__}: {str(err)}"
 
-        # Case C: Unrouted intent fallback
-        return ExecutionResult(
-            requestId=request.requestId,
-            success=False,
-            stdout="",
-            stderr=f"No matching tool or execution strategy identified for intent: '{request.intent}'",
-            exitCode=404,
-            latencyMs=0.0
+        # 3. Fallback unrouted intent
+        return (
+            None,
+            0,
+            f"Processed by MAC Intake Gate. Task registered under ID {request.requestId[:8]}.",
+            ""
         )

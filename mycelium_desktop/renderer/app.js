@@ -139,9 +139,11 @@
     // HOL Guard Modal
     holModalBackdrop: document.getElementById('hol-modal-backdrop'),
     modalIntent: document.getElementById('modal-intent'),
+    modalPlainImpact: document.getElementById('modal-plain-impact'),
     modalSafetyTier: document.getElementById('modal-safety-tier'),
     modalPrivilegeTier: document.getElementById('modal-privilege-tier'),
     modalPayloadCode: document.getElementById('modal-payload-code'),
+    modalToken: document.getElementById('modal-token'),
     modalQid: document.getElementById('modal-qid'),
     holApproveBtn: document.getElementById('hol-approve-btn'),
     holRejectBtn: document.getElementById('hol-reject-btn'),
@@ -2465,8 +2467,14 @@
   function triggerHolModal(data) {
     state.currentQuarantineId = data.quarantineId;
     el.modalIntent.textContent = data.intent;
-    el.modalSafetyTier.textContent = data.safetyTier;
+    if (el.modalPlainImpact) {
+      el.modalPlainImpact.textContent = data.plainImpact || 'Requires Human-On-The-Loop authorization.';
+    }
+    el.modalSafetyTier.textContent = data.tierLevel ? `${data.tierLevel} (${data.safetyTier})` : data.safetyTier;
     el.modalPrivilegeTier.textContent = data.privilegeTier;
+    if (el.modalToken) {
+      el.modalToken.textContent = data.oneShotToken ? data.oneShotToken.substring(0, 12) + '...' : '--';
+    }
 
     let payloadStr = '';
     if (data.payload && data.payload.command) {

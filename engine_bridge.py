@@ -2,7 +2,7 @@
 US Neural - Mycelium Desktop Engine Bridge
 Module: engine_bridge.py
 Description: Stdio JSON-RPC bridge connecting Electron Main process to the Python
-             MyceliumCoordinator, LocalExecDaemon, and HOL Guard engine.
+             MyceliumCoordinator, LocalExecDaemon, HOL Guard engine, and Deterministic Verifier.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from protocol import (
     HOLQuarantineEvent,
     PrivilegeTier,
     SafetyTier,
+    TierLevel,
 )
 from local_daemon import LocalExecDaemon
 from mcp_gateway import MCPGateway
@@ -116,7 +117,8 @@ class EngineBridge:
     def _gui_human_confirmation_hook(self, quarantine: HOLQuarantineEvent) -> bool:
         """
         Quarantine hook invoked by HOL Guard when a MUTATING action is requested.
-        Emits quarantine payload over stdio to Electron and blocks until operator resolves.
+        Emits quarantine payload with signed one-shot token and plain impact to Electron,
+        blocking until operator resolves or 15-minute timeout occurs.
         """
         event_obj = threading.Event()
         quarantine_id = quarantine.quarantineId
@@ -129,16 +131,22 @@ class EngineBridge:
         self._send_message({
             "type": "HOL_QUARANTINE_TRIGGERED",
             "quarantineId": quarantine_id,
+            "contractId": quarantine.contractId,
             "requestId": quarantine.request.requestId,
             "intent": quarantine.request.intent,
             "privilegeTier": quarantine.request.privilegeTier.value,
             "safetyTier": quarantine.request.safetyTier.value,
+            "tierLevel": "T2",
+            "callHash": quarantine.callHash,
+            "oneShotToken": quarantine.oneShotToken,
+            "plainImpact": quarantine.plainImpact,
+            "expiresAt": quarantine.expiresAt,
             "payload": quarantine.request.payload,
             "quarantineReason": quarantine.quarantineReason,
             "timestamp": quarantine.quarantinedAt
         })
 
-        # Block until Electron UI resolves or timeout (120 seconds max)
+        # Block until Electron UI resolves or timeout (120 seconds for UI loop)
         resolved = event_obj.wait(timeout=120.0)
 
         with self._lock:
@@ -200,6 +208,7 @@ class EngineBridge:
             {"id": "node-shell", "name": "Terminal Subshell Daemon", "type": "ISOLATED_PROC", "status": "ONLINE", "pingMs": 0.25},
             {"id": "node-weather", "name": "Weather Sensor Node", "type": "TELEMETRY_MESH", "status": "ONLINE", "pingMs": 0.42},
             {"id": "node-crypto", "name": "Crypto Telemetry Node", "type": "CONSENSUS_MESH", "status": "ONLINE", "pingMs": 0.58},
+            {"id": "node-verifier", "name": "Deterministic Verifier Node", "type": "OUT_OF_BAND_VERIFIER", "status": "ONLINE", "pingMs": 0.08},
         ]
         return nodes
 
@@ -208,9 +217,6 @@ class EngineBridge:
         intent = req_data.get("intent", "").strip()
         privilege_str = req_data.get("privilegeTier", "PERSON")
         privilege = PrivilegeTier(privilege_str)
-
-        # Automatic safety inference if not specified:
-        # If payload contains command or mentions write/delete/execute -> MUTATING
         payload = req_data.get("payload", {})
         safety_str = req_data.get("safetyTier")
 
@@ -219,44 +225,48 @@ class EngineBridge:
         matches = self.coordinator.route_intent(intent, top_k=2)
         match_latency = round((time.perf_counter() - match_start) * 1000.0, 3)
 
-        best_match = matches[0] if matches else None
+        best_match = matches[0] if matches and matches[0].similarityScore >= 0.55 else None
         inferred_safety = SafetyTier.READ_ONLY
         if safety_str:
             inferred_safety = SafetyTier(safety_str)
         elif "command" in payload:
             inferred_safety = SafetyTier.MUTATING
-        elif best_match and best_match.tool.safetyTier == SafetyTier.MUTATING:
-            inferred_safety = SafetyTier.MUTATING
-        elif any(w in intent.lower() for w in ["write", "create", "delete", "run", "bash", "execute", "shell", "dir", "mkdir"]):
+        elif best_match and best_match.tool.safetyTier in (SafetyTier.MUTATING, SafetyTier.IRREVERSIBLE):
             inferred_safety = SafetyTier.MUTATING
 
-        # Emit Semantic Discovery Event to Electron GUI
-        self._send_message({
-            "type": "SEMANTIC_DISCOVERY_EVENT",
-            "intent": intent,
-            "matchedTool": best_match.tool.name if best_match else None,
-            "matchedToolSafety": best_match.tool.safetyTier.value if best_match else "UNKNOWN",
-            "similarityScore": best_match.similarityScore if best_match else 0.0,
-            "discoveryLatencyMs": match_latency
-        })
+        # Emit Semantic Discovery Event to Electron GUI only for true tool matches
+        if best_match:
+            self._send_message({
+                "type": "SEMANTIC_DISCOVERY_EVENT",
+                "intent": intent,
+                "matchedTool": best_match.tool.name,
+                "matchedToolSafety": best_match.tool.safetyTier.value,
+                "similarityScore": best_match.similarityScore,
+                "discoveryLatencyMs": match_latency
+            })
 
         # Synthesize ActionRequest
         action_request = ActionRequest(
             requestId=req_data.get("requestId") or f"req-{int(time.time()*1000)}",
+            contractId=req_data.get("contractId"),
             intent=intent,
             privilegeTier=privilege,
             safetyTier=inferred_safety,
-            payload=payload
+            payload=payload,
+            oneShotToken=req_data.get("oneShotToken")
         )
 
         # Dispatch via MyceliumCoordinator
-        result = self.coordinator.dispatch(action_request)
+        result: ExecutionResult = self.coordinator.dispatch(action_request)
 
-        # Send response back to Electron
+        # Send response back to Electron with receipt and contract tracking
+        receipt_dict = result.receipt.model_dump() if result.receipt else None
         self._send_message({
             "type": "EXECUTION_COMPLETE",
             "requestId": action_request.requestId,
+            "contractId": result.contractId,
             "intent": intent,
+            "tierLevel": result.tierLevel.value if result.tierLevel else "T0",
             "safetyTier": action_request.safetyTier.value,
             "privilegeTier": action_request.privilegeTier.value,
             "success": result.success,
@@ -264,7 +274,8 @@ class EngineBridge:
             "stderr": result.stderr,
             "exitCode": result.exitCode,
             "latencyMs": result.latencyMs,
-            "matchedTool": best_match.tool.name if best_match else None
+            "matchedTool": best_match.tool.name if best_match else None,
+            "receipt": receipt_dict
         })
 
     def run_stdio_loop(self) -> None:
@@ -272,7 +283,7 @@ class EngineBridge:
         # Initial ready handshake
         self._send_message({
             "type": "SYSTEM_READY",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "workspace": str(self.workspace_root),
             "meshNodes": self.get_mesh_nodes()
         })
@@ -295,6 +306,15 @@ class EngineBridge:
                 elif msg_type == "GET_MESH_NODES":
                     nodes = self.get_mesh_nodes()
                     self._send_message({"type": "MESH_NODES_DATA", "nodes": nodes})
+
+                elif msg_type == "GET_STATE_AUDIT":
+                    receipts = [r.model_dump() for r in self.coordinator.state_store.get_receipts()[:20]]
+                    quarantines = self.coordinator.state_store.get_pending_quarantines()
+                    self._send_message({
+                        "type": "STATE_AUDIT_DATA",
+                        "receipts": receipts,
+                        "quarantines": quarantines
+                    })
 
                 elif msg_type == "READ_FILE":
                     path = msg.get("filePath", "")
@@ -338,7 +358,7 @@ class EngineBridge:
                     self.handle_hol_decision(qid, decision)
 
                 elif msg_type == "DISPATCH_INTENT":
-                    # Run request processing in thread so stdio loop remains responsive to HOL decisions!
+                    # Process request in thread so stdio loop remains responsive
                     threading.Thread(
                         target=self.process_request,
                         args=(msg,),
@@ -347,7 +367,6 @@ class EngineBridge:
 
                 elif msg_type == "ABORT":
                     killed = self.daemon.abort_active()
-                    # Release any pending HOL decisions
                     with self._lock:
                         for qid, event_obj in list(self._pending_hol.items()):
                             self._hol_decisions[qid] = False

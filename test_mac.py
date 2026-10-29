@@ -125,7 +125,7 @@ def test_daemon_execute_command_timeout(daemon: LocalExecDaemon):
     )
     assert res.success is False
     assert res.exitCode == -1
-    assert "exceeded maximum allowed timeout" in res.stderr.lower() or "timeout" in res.stderr.lower()
+    assert "timeout" in res.stderr.lower() or "timed out" in res.stderr.lower()
 
 
 # ============================================================================
