@@ -58,6 +58,7 @@ def supervisor_ipc_env():
             except Exception:
                 pass
         sup.stop()
+        time.sleep(0.05)
 
 
 def test_ipc_kill_mut07_forged_hmac_on_approved_action(supervisor_ipc_env):

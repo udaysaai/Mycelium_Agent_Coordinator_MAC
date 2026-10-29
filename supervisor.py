@@ -439,7 +439,10 @@ class SupervisorDaemon:
                         pass
                 self._pipe_handles.clear()
 
+        time.sleep(0.05)
         self.state_store.close()
+        if hasattr(self, "coordinator") and self.coordinator and hasattr(self.coordinator, "state_store"):
+            self.coordinator.state_store.close()
         logger.info("Supervisor stopped.")
 
     # -------------------------------------------------------------------------

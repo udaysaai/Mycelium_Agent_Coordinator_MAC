@@ -53,15 +53,34 @@ def test_inprocess_flag_allows_testing_with_loud_warning(monkeypatch, capsys):
 
 def pipe_send_recv(pipe_path: str, msg: dict) -> dict:
     import json
+    import time
     import win32api
     import win32file
-    h = win32file.CreateFile(
-        pipe_path,
-        win32file.GENERIC_READ | win32file.GENERIC_WRITE,
-        0, None,
-        win32file.OPEN_EXISTING,
-        0, None
-    )
+    import win32pipe
+    import pywintypes
+
+    start = time.time()
+    h = None
+    while time.time() - start < 5.0:
+        try:
+            h = win32file.CreateFile(
+                pipe_path,
+                win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                0, None,
+                win32file.OPEN_EXISTING,
+                0, None
+            )
+            break
+        except pywintypes.error as e:
+            if e.winerror == 231:  # ERROR_PIPE_BUSY
+                try:
+                    win32pipe.WaitNamedPipe(pipe_path, 1000)
+                except Exception:
+                    time.sleep(0.05)
+            else:
+                raise
+    if h is None:
+        raise TimeoutError(f"Could not connect to named pipe {pipe_path} within 5s")
     try:
         win32file.WriteFile(h, (json.dumps(msg) + "\n").encode("utf-8"))
         win32file.FlushFileBuffers(h)
