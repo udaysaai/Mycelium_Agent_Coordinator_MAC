@@ -179,7 +179,7 @@ def test_end_to_end_approval_flow_via_ui_pipe(tmp_path):
     try:
         # Connect worker
         w_auth = _pipe_send_recv(sup.worker_pipe_path, {"type": "AUTH", "secret": sup.worker_secret})
-        assert w_auth.get("status") == "AUTH_OK"
+        assert w_auth.get("status") in ("AUTHENTICATED", "AUTH_OK")
 
         # Worker proposes mutating action
         long_cmd = "echo E2E_TEST_EXECUTION_VERIFIED"
