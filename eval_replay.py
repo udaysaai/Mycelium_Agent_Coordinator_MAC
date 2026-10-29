@@ -1,47 +1,67 @@
 #!/usr/bin/env python3
 """
-eval_replay.py - Phase 0 Replay & Reliability Evaluation Harness
-Executes N iterations (default N=20) of end-to-end workflows in isolated temp workspaces:
-  Workflow 1 (T1): Concrete Intake -> Sandboxed Atomic File Writer -> Deterministic Verifier
-  Workflow 2 (T2): Quarantined Shell Process -> Isolated UI Approval Channel -> Actuator -> Verifier
+eval_replay.py - Phase 0.5 Process Boundary Replay & Reliability Evaluation Harness
+Executes N iterations (default N=20) of end-to-end workflows across the process boundary:
+  - Supervisor: Privileged daemon running in separate process / thread with Job Object and SQLite state store
+  - Worker: Separate OS subprocess connecting over localhost socket IPC
+  - UI Channel: Isolated operator channel approving T2 quarantines with HMAC one-shot tokens
 
 Outputs:
-  - success count, failure count, unverified count
-  - mean / median / p95 latency per stage (Intake, Policy, Execution, Verifier, Total)
-  - Failure audit logs
-  - JSON results saved to eval_results/phase0_replay.json
+  - Latency statistics (mean and p95 for T1, T2 propose, UI approval, T2 execute, total end-to-end)
+  - Process memory metrics (supervisor memory MB, worker memory MB)
+  - State leak verification (0 state leaks across runs, clean fresh workspaces)
+  - Injected failure evaluations (worker killed mid-task, approval denied, approval expired)
+  - Raw results saved to eval_results/phase05_replay.json
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
 import shutil
+import socket
 import statistics
+import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
-from coordinator import MyceliumCoordinator
-from local_daemon import LocalExecDaemon
-from protocol import (
-    ActionRequest,
-    ExecutionResult,
-    HOLApprovalStatus,
-    HOLQuarantineEvent,
-    PrivilegeTier,
-    SafetyTier,
-    TaskContractStatus,
-    TierLevel,
-)
+from protocol import HOLApprovalStatus
 from state_store import StateStore
+from supervisor import SupervisorDaemon
+
+WORKSPACE_ROOT = Path(__file__).resolve().parent
+
+
+def get_process_memory_mb(pid: int) -> float:
+    """Extract Working Set memory in Megabytes for a given PID on Windows."""
+    try:
+        res = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=3.0
+        )
+        line = res.stdout.strip()
+        if not line or "No tasks" in line:
+            return 0.0
+        reader = csv.reader(io.StringIO(line))
+        row = next(reader)
+        if len(row) >= 5:
+            raw_mem = row[4].replace(" K", "").replace(",", "").replace(".", "").strip()
+            return round(float(raw_mem) / 1024.0, 2)
+    except Exception:
+        pass
+    return 0.0
 
 
 def calc_stats(values: List[float]) -> Dict[str, float]:
-    """Compute mean, median, and p95 for a list of latency samples."""
+    """Compute mean, median, and p95 for a list of metrics."""
     if not values:
         return {"mean": 0.0, "median": 0.0, "p95": 0.0, "min": 0.0, "max": 0.0}
     sorted_v = sorted(values)
@@ -56,275 +76,497 @@ def calc_stats(values: List[float]) -> Dict[str, float]:
     }
 
 
-def run_t1_workflow_iteration(iter_idx: int) -> Dict[str, Any]:
-    """
-    Workflow 1 (T1):
-    Intake -> Sandboxed File Write -> Out-of-Band Verifier.
-    Runs in a completely fresh temporary workspace.
-    """
-    temp_dir = tempfile.TemporaryDirectory(prefix=f"mac_eval_t1_{iter_idx}_")
-    ws_root = Path(temp_dir.name).resolve()
-    db_path = ws_root / "data" / "mac_state.db"
-    key_path = ws_root / "keys" / "test_key.key"
-
-    daemon = LocalExecDaemon(workspace_root=ws_root)
-    store = StateStore(db_path=db_path)
-    coord = MyceliumCoordinator(
-        local_daemon=daemon,
-        state_store=store,
-        key_file_path=key_path
-    )
-
-    content = f'{{"iteration": {iter_idx}, "status": "active", "timestamp": {time.time()}}}'
-    filename = f"eval_metrics_{iter_idx}.json"
-    intent = f"create file 'workspace_sandbox/{filename}' with content '{content}'"
-
-    req = ActionRequest(
-        intent=intent,
-        privilegeTier=PrivilegeTier.PERSON,
-        safetyTier=SafetyTier.MUTATING_SANDBOX,
-        payload={
-            "tool_name": "sandboxed_file_writer",
-            "file_path": filename,
-            "content": content
-        }
-    )
-
-    t_start = time.perf_counter()
-    # 1. Intake Stage
-    s1_start = time.perf_counter()
-    intake_outcome = coord.intake_gate.evaluate_intent(intent=req.intent, payload=req.payload)
-    s1_ms = (time.perf_counter() - s1_start) * 1000.0
-
-    # 2. Policy Stage
-    s2_start = time.perf_counter()
-    verdict = coord.policy_engine.evaluate(request=req, contract=intake_outcome.contract, tool_name="sandboxed_file_writer")
-    s2_ms = (time.perf_counter() - s2_start) * 1000.0
-
-    # 3. Full dispatch through coordinator (Actuator + Verifier)
-    res: ExecutionResult = coord.dispatch(req)
-    t_total_ms = (time.perf_counter() - t_start) * 1000.0
-
-    # Verifier Receipt Verification
-    is_verified = res.receipt is not None and res.receipt.verified is True
-    is_success = res.success and is_verified
-
-    failure_reason = None
-    if not is_success:
-        failure_reason = res.stderr or (res.receipt.verifierNotes if res.receipt else "Unknown failure")
-
-    result = {
-        "iteration": iter_idx,
-        "type": "T1_WORKFLOW",
-        "success": is_success,
-        "verified": is_verified,
-        "exit_code": res.exitCode,
-        "failure_reason": failure_reason,
-        "stages_ms": {
-            "intake": round(s1_ms, 3),
-            "policy": round(s2_ms, 3),
-            "total_dispatch": round(res.latencyMs, 3),
-            "end_to_end": round(t_total_ms, 3)
-        }
-    }
-    store.close()
+def send_ui_command(ui_port: int, msg: Dict[str, Any]) -> Dict[str, Any]:
+    """Send an authenticated command over the isolated UI channel socket."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(10.0)
+    sock.connect(("127.0.0.1", ui_port))
     try:
-        temp_dir.cleanup()
-    except Exception:
-        pass
-    return result
+        sock.sendall((json.dumps(msg) + "\n").encode("utf-8"))
+        buffer = ""
+        while "\n" not in buffer:
+            chunk = sock.recv(65536).decode("utf-8")
+            if not chunk:
+                break
+            buffer += chunk
+        line, _ = buffer.split("\n", 1)
+        return json.loads(line)
+    finally:
+        sock.close()
 
 
-def run_t2_workflow_iteration(iter_idx: int) -> Dict[str, Any]:
+def run_benchmark_iteration(iter_idx: int) -> Dict[str, Any]:
     """
-    Workflow 2 (T2):
-    Shell execution -> Policy Engine Quarantine -> Supervisor UI Channel Approval -> Execution -> Verifier.
-    Approvals are simulated strictly through the isolated UI supervisor confirmation hook.
+    Run one full benchmark task across the process boundary:
+      1. Fresh workspace creation and clean state verification.
+      2. Start SupervisorDaemon in workspace.
+      3. Spawn Worker subprocess.
+      4. Worker performs T1 (sandboxed write).
+      5. Worker proposes T2 (quarantined shell action).
+      6. UI Channel approves T2 quarantine and delivers token.
+      7. Worker executes approved T2 action.
+      8. Measure latencies, supervisor & worker memory.
+      9. Verify 0 state leaks.
     """
-    temp_dir = tempfile.TemporaryDirectory(prefix=f"mac_eval_t2_{iter_idx}_")
-    ws_root = Path(temp_dir.name).resolve()
-    db_path = ws_root / "data" / "mac_state.db"
-    key_path = ws_root / "keys" / "test_key.key"
+    with tempfile.TemporaryDirectory(prefix=f"mac_bench_{iter_idx}_") as tmp_dir:
+        ws_root = Path(tmp_dir).resolve()
+        sandbox_dir = ws_root / "workspace_sandbox"
+        sandbox_dir.mkdir(parents=True, exist_ok=True)
 
-    ui_approval_called = False
-    ui_approval_latency_ms = 0.0
+        # Verify initial clean state (0 pre-existing files in sandbox or DB)
+        initial_files = list(sandbox_dir.iterdir())
+        assert len(initial_files) == 0, f"State leak before run: {initial_files}"
 
-    def isolated_ui_supervisor_channel(quarantine_event: HOLQuarantineEvent) -> bool:
-        """Simulates the human supervisor UI IPC channel authorizing the action."""
-        nonlocal ui_approval_called, ui_approval_latency_ms
-        t0 = time.perf_counter()
-        # Verify quarantine integrity
-        assert quarantine_event.quarantineId is not None
-        assert quarantine_event.plainImpact != ""
-        assert quarantine_event.request.safetyTier in (SafetyTier.MUTATING, SafetyTier.MUTATING_SANDBOX)
-        ui_approval_called = True
-        ui_approval_latency_ms = (time.perf_counter() - t0) * 1000.0
-        return True  # Authorized by UI Supervisor
+        # Initialize and start Supervisor
+        supervisor = SupervisorDaemon(workspace_root=ws_root)
+        supervisor.start()
 
-    daemon = LocalExecDaemon(workspace_root=ws_root)
-    store = StateStore(db_path=db_path)
-    coord = MyceliumCoordinator(
-        local_daemon=daemon,
-        state_store=store,
-        key_file_path=key_path,
-        human_confirmation_hook=isolated_ui_supervisor_channel
-    )
+        sup_pid = os.getpid()
+        worker_proc: Optional[subprocess.Popen] = None
 
-    command_str = f"python -c \"import sys; sys.stdout.write('EVAL_RUN_{iter_idx}_OK')\""
-    req = ActionRequest(
-        intent=f"execute diagnostics command {iter_idx}",
-        privilegeTier=PrivilegeTier.PERSON,
-        safetyTier=SafetyTier.MUTATING,
-        payload={"command": command_str}
-    )
+        t_start = time.perf_counter()
+        try:
+            # Spawn worker subprocess
+            worker_script = WORKSPACE_ROOT / "eval_worker_proc.py"
+            cmd = [
+                sys.executable, str(worker_script),
+                "--port", str(supervisor.worker_port),
+                "--secret", supervisor.worker_secret,
+                "--iter-idx", str(iter_idx)
+            ]
 
-    t_start = time.perf_counter()
-    res: ExecutionResult = coord.dispatch(req)
-    t_total_ms = (time.perf_counter() - t_start) * 1000.0
+            worker_proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            # Assign worker to supervisor Job Object
+            supervisor.assign_worker_to_job(worker_proc)
 
-    is_verified = res.receipt is not None and res.receipt.verified is True
-    is_success = res.success and is_verified and ui_approval_called and ("EVAL_RUN" in res.stdout)
+            worker_pid = worker_proc.pid
 
-    failure_reason = None
-    if not is_success:
-        if not ui_approval_called:
-            failure_reason = "UI approval channel was not invoked"
-        elif not res.success:
-            failure_reason = res.stderr or "Coordinator dispatch failed"
-        elif not is_verified:
-            failure_reason = "Verifier failed to confirm exit code"
+            # Read worker output until it requests approval
+            first_line = worker_proc.stdout.readline()
+            assert first_line, f"Worker produced no output. Stderr: {worker_proc.stderr.read()}"
+            step1_data = json.loads(first_line)
 
-    result = {
-        "iteration": iter_idx,
-        "type": "T2_WORKFLOW",
-        "success": is_success,
-        "verified": is_verified,
-        "ui_channel_invoked": ui_approval_called,
-        "exit_code": res.exitCode,
-        "failure_reason": failure_reason,
-        "stages_ms": {
-            "ui_approval": round(ui_approval_latency_ms, 3),
-            "total_dispatch": round(res.latencyMs, 3),
-            "end_to_end": round(t_total_ms, 3)
-        }
-    }
-    store.close()
-    try:
-        temp_dir.cleanup()
-    except Exception:
-        pass
-    return result
+            assert step1_data.get("status") == "AWAITING_APPROVAL", f"Unexpected step1_data: {step1_data}, stderr: {worker_proc.stderr.read()}"
+            t1_resp = step1_data["t1_resp"]
+            assert t1_resp["status"] == "COMPLETED"
+            assert t1_resp["success"] is True
+            assert t1_resp["receipt"]["verified"] is True
+
+            t2_quarantine = step1_data["t2_resp"]
+            assert t2_quarantine["status"] == "QUARANTINED"
+            qid = t2_quarantine["quarantine_id"]
+
+            # Sample process memory while worker is active and awaiting approval
+            worker_mem_mb = get_process_memory_mb(worker_pid)
+            sup_mem_mb = get_process_memory_mb(sup_pid)
+
+            # UI Channel Approval
+            ui_t0 = time.perf_counter()
+            ui_resp = send_ui_command(supervisor.ui_port, {
+                "secret": supervisor.ui_secret,
+                "type": "APPROVE_ACTION",
+                "quarantine_id": qid,
+                "operator_notes": f"Approved by benchmark harness iter {iter_idx}"
+            })
+            ui_approval_ms = (time.perf_counter() - ui_t0) * 1000.0
+
+            assert ui_resp.get("status") == "APPROVED"
+            token = ui_resp["one_shot_token"]
+
+            # Deliver token to worker over stdin
+            worker_proc.stdin.write(json.dumps({"token": token}) + "\n")
+            worker_proc.stdin.flush()
+
+            # Read final worker completion
+            second_line = worker_proc.stdout.readline()
+            assert second_line, f"Worker did not complete. Stderr: {worker_proc.stderr.read()}"
+            final_data = json.loads(second_line)
+
+            assert final_data.get("status") == "COMPLETED"
+            t2_exec_resp = final_data["t2_exec_resp"]
+            assert t2_exec_resp["status"] == "COMPLETED"
+            assert t2_exec_resp["success"] is True
+            assert t2_exec_resp["receipt"]["verified"] is True
+
+            t_total_ms = (time.perf_counter() - t_start) * 1000.0
+
+            worker_proc.wait(timeout=5.0)
+
+            # State check: Verify DB has exactly 1 quarantine (status=APPROVED, one_shot_token=CONSUMED)
+            # and exactly 2 receipts
+            db_path = ws_root / "data" / "mac_state.db"
+            check_store = StateStore(db_path=db_path)
+            try:
+                quarantines = check_store.get_pending_quarantines()
+                assert len(quarantines) == 0, "Pending quarantine leaked!"
+                q_item = check_store.get_quarantine(qid)
+                assert q_item is not None
+                assert q_item["status"] == HOLApprovalStatus.APPROVED.value
+                assert q_item["one_shot_token"] == "CONSUMED"
+
+                with check_store._get_connection() as conn:
+                    cur = conn.execute("SELECT count(*) FROM receipts")
+                    receipt_count = cur.fetchone()[0]
+                    assert receipt_count == 2, f"Expected 2 receipts, found {receipt_count}"
+            finally:
+                check_store.close()
+
+            return {
+                "iteration": iter_idx,
+                "success": True,
+                "latencies_ms": {
+                    "t1_write": step1_data["t1_latency_ms"],
+                    "t2_propose": step1_data["t2_propose_latency_ms"],
+                    "ui_approval": round(ui_approval_ms, 3),
+                    "t2_execute": final_data["t2_exec_latency_ms"],
+                    "end_to_end": round(t_total_ms, 3)
+                },
+                "memory_mb": {
+                    "supervisor": sup_mem_mb,
+                    "worker": worker_mem_mb
+                },
+                "verified": True,
+                "state_leak": False
+            }
+
+        finally:
+            if worker_proc and worker_proc.poll() is None:
+                worker_proc.kill()
+            supervisor.stop()
+
+
+def run_injected_failure_worker_killed(iter_idx: int = 101) -> Dict[str, Any]:
+    """
+    Failure Scenario 1: Worker is hard-killed mid-task while action is quarantined.
+    Supervisor must survive, handle socket disconnection, and leave quarantine unexecuted in DB.
+    """
+    with tempfile.TemporaryDirectory(prefix="mac_fail_kill_") as tmp_dir:
+        ws_root = Path(tmp_dir).resolve()
+        (ws_root / "workspace_sandbox").mkdir(parents=True, exist_ok=True)
+
+        supervisor = SupervisorDaemon(workspace_root=ws_root)
+        supervisor.start()
+
+        worker_proc: Optional[subprocess.Popen] = None
+        try:
+            worker_script = WORKSPACE_ROOT / "eval_worker_proc.py"
+            cmd = [
+                sys.executable, str(worker_script),
+                "--port", str(supervisor.worker_port),
+                "--secret", supervisor.worker_secret,
+                "--iter-idx", str(iter_idx),
+                "--mode", "kill_before_exec"
+            ]
+
+            worker_proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            supervisor.assign_worker_to_job(worker_proc)
+
+            # Wait for worker to reach quarantine state
+            line = worker_proc.stdout.readline()
+            data = json.loads(line)
+            qid = data["t2_quarantine"]["quarantine_id"]
+
+            # Abruptly kill worker process with TerminateProcess/kill
+            worker_proc.kill()
+            worker_proc.wait(timeout=3.0)
+
+            # Verify supervisor is still healthy and responsive
+            diag = send_ui_command(supervisor.ui_port, {
+                "secret": supervisor.ui_secret,
+                "type": "LIST_PENDING"
+            })
+            assert diag.get("status") == "OK"
+            pending_ids = [q["quarantine_id"] for q in diag.get("pending", [])]
+            assert qid in pending_ids
+
+            # Verify action remained unexecuted in DB
+            db_path = ws_root / "data" / "mac_state.db"
+            check_store = StateStore(db_path=db_path)
+            try:
+                q_item = check_store.get_quarantine(qid)
+                assert q_item["status"] == HOLApprovalStatus.PENDING.value
+                assert q_item["one_shot_token"] != "CONSUMED"
+            finally:
+                check_store.close()
+
+            return {
+                "scenario": "worker_killed_mid_task",
+                "worker_killed": True,
+                "supervisor_survived": True,
+                "unexecuted_in_db": True,
+                "passed": True
+            }
+        finally:
+            if worker_proc and worker_proc.poll() is None:
+                worker_proc.kill()
+            supervisor.stop()
+
+
+def run_injected_failure_approval_denied(iter_idx: int = 102) -> Dict[str, Any]:
+    """
+    Failure Scenario 2: Operator explicitly rejects T2 action via UI channel.
+    Worker execution attempt must fail, and status must stay REJECTED.
+    """
+    with tempfile.TemporaryDirectory(prefix="mac_fail_deny_") as tmp_dir:
+        ws_root = Path(tmp_dir).resolve()
+        (ws_root / "workspace_sandbox").mkdir(parents=True, exist_ok=True)
+
+        supervisor = SupervisorDaemon(workspace_root=ws_root)
+        supervisor.start()
+
+        worker_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        worker_sock.connect(("127.0.0.1", supervisor.worker_port))
+
+        try:
+            # 1. Auth worker
+            worker_sock.sendall((json.dumps({"type": "AUTH", "secret": supervisor.worker_secret}) + "\n").encode("utf-8"))
+            auth_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+            assert auth_resp.get("status") in ("OK", "AUTHENTICATED")
+
+            # 2. Propose T2 action
+            worker_sock.sendall((json.dumps({
+                "type": "PROPOSE_ACTION",
+                "intent": "destructively modify system",
+                "tool_name": "execute_shell_command",
+                "payload": {"command": "echo MALICIOUS"}
+            }) + "\n").encode("utf-8"))
+            prop_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+            qid = prop_resp.get("quarantine_id")
+
+            # 3. UI channel explicitly rejects the action
+            ui_resp = send_ui_command(supervisor.ui_port, {
+                "secret": supervisor.ui_secret,
+                "type": "REJECT_ACTION",
+                "quarantine_id": qid,
+                "operator_notes": "Operator denied action due to policy violation"
+            })
+            assert ui_resp.get("status") == "REJECTED"
+
+            # 4. Worker attempts to execute anyway with forged/blank token
+            worker_sock.sendall((json.dumps({
+                "type": "EXECUTE_APPROVED",
+                "quarantine_id": qid,
+                "one_shot_token": "FORGED_TOKEN",
+                "payload": {"command": "echo MALICIOUS"}
+            }) + "\n").encode("utf-8"))
+            exec_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+
+            # Must be rejected with ERROR / 403
+            assert exec_resp.get("status") == "ERROR"
+            assert exec_resp.get("success") is False
+
+            # Verify DB state
+            db_path = ws_root / "data" / "mac_state.db"
+            check_store = StateStore(db_path=db_path)
+            try:
+                q_item = check_store.get_quarantine(qid)
+                assert q_item["status"] == HOLApprovalStatus.REJECTED.value
+            finally:
+                check_store.close()
+
+            return {
+                "scenario": "operator_approval_denied",
+                "rejection_enforced": True,
+                "execution_blocked": True,
+                "passed": True
+            }
+        finally:
+            worker_sock.close()
+            supervisor.stop()
+
+
+def run_injected_failure_approval_expired(iter_idx: int = 103) -> Dict[str, Any]:
+    """
+    Failure Scenario 3: Action expires before or during execution.
+    Supervisor must detect expiration, reject approval/execution, and mark REJECTED_TIMEOUT.
+    """
+    with tempfile.TemporaryDirectory(prefix="mac_fail_exp_") as tmp_dir:
+        ws_root = Path(tmp_dir).resolve()
+        (ws_root / "workspace_sandbox").mkdir(parents=True, exist_ok=True)
+
+        supervisor = SupervisorDaemon(workspace_root=ws_root)
+        current_time = 100000.0
+        supervisor.clock = lambda: current_time
+        supervisor.state_store.clock = lambda: current_time
+        supervisor.start()
+
+        worker_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        worker_sock.connect(("127.0.0.1", supervisor.worker_port))
+
+        try:
+            # 1. Auth worker
+            worker_sock.sendall((json.dumps({"type": "AUTH", "secret": supervisor.worker_secret}) + "\n").encode("utf-8"))
+            auth_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+            assert auth_resp.get("status") in ("OK", "AUTHENTICATED")
+
+            # 2. Propose T2 action
+            worker_sock.sendall((json.dumps({
+                "type": "PROPOSE_ACTION",
+                "intent": "action to expire",
+                "tool_name": "execute_shell_command",
+                "payload": {"command": "echo EXPIRED_COMMAND"}
+            }) + "\n").encode("utf-8"))
+            prop_resp = json.loads(worker_sock.recv(4096).decode("utf-8").strip())
+            qid = prop_resp.get("quarantine_id")
+
+            # 3. Advance clock past expiry deadline (t + 901s)
+            current_time = 100901.0
+
+            # 4. UI tries to approve or worker tries to execute after expiry
+            ui_resp = send_ui_command(supervisor.ui_port, {
+                "secret": supervisor.ui_secret,
+                "type": "APPROVE_ACTION",
+                "quarantine_id": qid,
+                "operator_notes": "Late approval attempt"
+            })
+            # Supervisor must return ERROR (cannot approve expired action)
+            assert ui_resp.get("status") == "ERROR"
+
+            # Verify DB updated to REJECTED_TIMEOUT
+            db_path = ws_root / "data" / "mac_state.db"
+            check_store = StateStore(db_path=db_path)
+            try:
+                q_item = check_store.get_quarantine(qid)
+                assert q_item["status"] == HOLApprovalStatus.REJECTED_TIMEOUT.value
+            finally:
+                check_store.close()
+
+            return {
+                "scenario": "approval_expired_timeout",
+                "timeout_enforced": True,
+                "state_marked_timeout": True,
+                "passed": True
+            }
+        finally:
+            worker_sock.close()
+            supervisor.stop()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Phase 0 Replay and Eval Harness")
-    parser.add_argument("--iterations", "-n", type=int, default=20, help="Number of iterations (default 20)")
-    parser.add_argument("--output", "-o", type=str, default="eval_results/phase0_replay.json", help="Output path")
+    parser = argparse.ArgumentParser(description="Phase 0.5 Process Boundary Replay and Reliability Eval")
+    parser.add_argument("--iterations", "-n", type=int, default=20, help="Number of benchmark iterations (default 20)")
+    parser.add_argument("--output", "-o", type=str, default="eval_results/phase05_replay.json", help="Output file path")
     args = parser.parse_args()
 
     n = args.iterations
     out_file = Path(args.output).resolve()
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 80)
-    print(f"MYCELIUM PHASE 0 REPLAY & RELIABILITY EVAL HARNESS (N={n})")
-    print("=" * 80)
+    print("=" * 85)
+    print(f"MYCELIUM PHASE 0.5 PROCESS BOUNDARY REPLAY BENCHMARK (N={n})")
+    print("=" * 85)
     print(f"Output File: {out_file}\n")
 
-    t1_results: List[Dict[str, Any]] = []
-    t2_results: List[Dict[str, Any]] = []
+    benchmark_runs: List[Dict[str, Any]] = []
 
-    print(f"[*] Running Workflow 1: T1 Sandboxed File Write (Intake -> Actuator -> Verifier) x {n}...")
+    print(f"[*] Running End-to-End Task (T1 Sandboxed Write + T2 Quarantined Shell via UI Channel) x {n}...")
     for i in range(1, n + 1):
-        r = run_t1_workflow_iteration(i)
-        t1_results.append(r)
-        status_char = "." if r["success"] else "F"
-        print(status_char, end="", flush=True)
-    print(" Done.")
-
-    print(f"[*] Running Workflow 2: T2 HOL Quarantine (Intake -> Quarantine -> UI Hook -> Verifier) x {n}...")
-    for i in range(1, n + 1):
-        r = run_t2_workflow_iteration(i)
-        t2_results.append(r)
-        status_char = "." if r["success"] else "F"
+        res = run_benchmark_iteration(i)
+        benchmark_runs.append(res)
+        status_char = "." if res["success"] else "F"
         print(status_char, end="", flush=True)
     print(" Done.\n")
 
-    # Aggregate T1
-    t1_successes = sum(1 for r in t1_results if r["success"])
-    t1_unverified = sum(1 for r in t1_results if not r["verified"])
-    t1_failures = [r for r in t1_results if not r["success"]]
-    t1_intake_latencies = [r["stages_ms"]["intake"] for r in t1_results]
-    t1_policy_latencies = [r["stages_ms"]["policy"] for r in t1_results]
-    t1_total_latencies = [r["stages_ms"]["total_dispatch"] for r in t1_results]
-    t1_e2e_latencies = [r["stages_ms"]["end_to_end"] for r in t1_results]
+    # Injected Failure Runs
+    print("[*] Running Injected Failure Scenarios:")
+    print("    1. Worker Killed Mid-Task (SIGKILL / TerminateProcess)...", end="", flush=True)
+    f1 = run_injected_failure_worker_killed()
+    print(" PASS" if f1["passed"] else " FAIL")
 
-    # Aggregate T2
-    t2_successes = sum(1 for r in t2_results if r["success"])
-    t2_unverified = sum(1 for r in t2_results if not r["verified"])
-    t2_failures = [r for r in t2_results if not r["success"]]
-    t2_ui_latencies = [r["stages_ms"]["ui_approval"] for r in t2_results]
-    t2_total_latencies = [r["stages_ms"]["total_dispatch"] for r in t2_results]
-    t2_e2e_latencies = [r["stages_ms"]["end_to_end"] for r in t2_results]
+    print("    2. Operator Approval Denied via UI Channel...", end="", flush=True)
+    f2 = run_injected_failure_approval_denied()
+    print(" PASS" if f2["passed"] else " FAIL")
 
-    stats_summary = {
+    print("    3. Operator Approval Expired (Default-Deny Timeout)...", end="", flush=True)
+    f3 = run_injected_failure_approval_expired()
+    print(" PASS" if f3["passed"] else " FAIL")
+    print()
+
+    # Aggregate Metrics
+    success_count = sum(1 for r in benchmark_runs if r["success"])
+    t1_latencies = [r["latencies_ms"]["t1_write"] for r in benchmark_runs]
+    t2_prop_latencies = [r["latencies_ms"]["t2_propose"] for r in benchmark_runs]
+    ui_latencies = [r["latencies_ms"]["ui_approval"] for r in benchmark_runs]
+    t2_exec_latencies = [r["latencies_ms"]["t2_execute"] for r in benchmark_runs]
+    e2e_latencies = [r["latencies_ms"]["end_to_end"] for r in benchmark_runs]
+
+    sup_memories = [r["memory_mb"]["supervisor"] for r in benchmark_runs if r["memory_mb"]["supervisor"] > 0]
+    worker_memories = [r["memory_mb"]["worker"] for r in benchmark_runs if r["memory_mb"]["worker"] > 0]
+
+    state_leaks = sum(1 for r in benchmark_runs if r["state_leak"])
+
+    summary_data = {
         "metadata": {
-            "iterations_per_workflow": n,
-            "total_runs": n * 2,
+            "iterations": n,
             "timestamp": time.time(),
-            "date": time.strftime("%Y-%m-%d %H:%M:%S")
+            "date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "os": sys.platform,
+            "python_version": sys.version.split()[0]
         },
-        "workflow_t1_sandboxed_write": {
-            "total": n,
-            "success_count": t1_successes,
-            "failure_count": len(t1_failures),
-            "unverified_count": t1_unverified,
-            "success_rate_pct": round((t1_successes / n) * 100.0, 2),
+        "benchmark_summary": {
+            "total_runs": n,
+            "successful_runs": success_count,
+            "failed_runs": n - success_count,
+            "state_leaks_count": state_leaks,
             "latencies_ms": {
-                "intake_stage": calc_stats(t1_intake_latencies),
-                "policy_stage": calc_stats(t1_policy_latencies),
-                "coordinator_dispatch": calc_stats(t1_total_latencies),
-                "end_to_end": calc_stats(t1_e2e_latencies)
+                "t1_sandboxed_write": calc_stats(t1_latencies),
+                "t2_quarantine_propose": calc_stats(t2_prop_latencies),
+                "t2_ui_approval": calc_stats(ui_latencies),
+                "t2_approved_execute": calc_stats(t2_exec_latencies),
+                "end_to_end_task": calc_stats(e2e_latencies)
             },
-            "failures": t1_failures
+            "memory_mb": {
+                "supervisor_process": calc_stats(sup_memories),
+                "worker_subprocess": calc_stats(worker_memories)
+            }
         },
-        "workflow_t2_quarantine_shell": {
-            "total": n,
-            "success_count": t2_successes,
-            "failure_count": len(t2_failures),
-            "unverified_count": t2_unverified,
-            "success_rate_pct": round((t2_successes / n) * 100.0, 2),
-            "latencies_ms": {
-                "ui_channel_approval": calc_stats(t2_ui_latencies),
-                "coordinator_dispatch": calc_stats(t2_total_latencies),
-                "end_to_end": calc_stats(t2_e2e_latencies)
-            },
-            "failures": t2_failures
-        }
+        "injected_failures": {
+            "worker_killed_mid_task": f1,
+            "approval_denied": f2,
+            "approval_expired": f3
+        },
+        "runs": benchmark_runs
     }
 
     # Save to JSON
     with open(out_file, "w", encoding="utf-8") as f:
-        json.dump(stats_summary, f, indent=2)
+        json.dump(summary_data, f, indent=2)
 
     # Print Report
-    print("=" * 80)
-    print("PHASE 0 REPLAY & EVALUATION BENCHMARK SUMMARY")
-    print("=" * 80)
-    print(f"Workflow 1 (T1 Sandboxed File Write):")
-    print(f"  Runs: {n} | Success: {t1_successes} | Failures: {len(t1_failures)} | Unverified: {t1_unverified}")
-    print(f"  Intake Latency (ms) : Mean={stats_summary['workflow_t1_sandboxed_write']['latencies_ms']['intake_stage']['mean']} | Median={stats_summary['workflow_t1_sandboxed_write']['latencies_ms']['intake_stage']['median']} | p95={stats_summary['workflow_t1_sandboxed_write']['latencies_ms']['intake_stage']['p95']}")
-    print(f"  Policy Latency (ms) : Mean={stats_summary['workflow_t1_sandboxed_write']['latencies_ms']['policy_stage']['mean']} | Median={stats_summary['workflow_t1_sandboxed_write']['latencies_ms']['policy_stage']['median']} | p95={stats_summary['workflow_t1_sandboxed_write']['latencies_ms']['policy_stage']['p95']}")
-    print(f"  Total Dispatch (ms) : Mean={stats_summary['workflow_t1_sandboxed_write']['latencies_ms']['coordinator_dispatch']['mean']} | Median={stats_summary['workflow_t1_sandboxed_write']['latencies_ms']['coordinator_dispatch']['median']} | p95={stats_summary['workflow_t1_sandboxed_write']['latencies_ms']['coordinator_dispatch']['p95']}")
-    print()
-    print(f"Workflow 2 (T2 Quarantined Shell Process with Isolated UI Approval):")
-    print(f"  Runs: {n} | Success: {t2_successes} | Failures: {len(t2_failures)} | Unverified: {t2_unverified}")
-    print(f"  UI Hook Latency (ms): Mean={stats_summary['workflow_t2_quarantine_shell']['latencies_ms']['ui_channel_approval']['mean']} | Median={stats_summary['workflow_t2_quarantine_shell']['latencies_ms']['ui_channel_approval']['median']} | p95={stats_summary['workflow_t2_quarantine_shell']['latencies_ms']['ui_channel_approval']['p95']}")
-    print(f"  Total Dispatch (ms) : Mean={stats_summary['workflow_t2_quarantine_shell']['latencies_ms']['coordinator_dispatch']['mean']} | Median={stats_summary['workflow_t2_quarantine_shell']['latencies_ms']['coordinator_dispatch']['median']} | p95={stats_summary['workflow_t2_quarantine_shell']['latencies_ms']['coordinator_dispatch']['p95']}")
-    print("=" * 80)
-    print(f"Results successfully saved to: {out_file}\n")
+    print("=" * 85)
+    print("PHASE 0.5 PROCESS BOUNDARY BENCHMARK REPORT")
+    print("=" * 85)
+    print(f"Total Iterations: {n} | Successful: {success_count} | Failures: {n - success_count} | State Leaks: {state_leaks}")
+    print("\n--- Latencies (ms) ---")
+    print(f"  T1 Sandboxed Write     : Mean={summary_data['benchmark_summary']['latencies_ms']['t1_sandboxed_write']['mean']:>7.2f} ms | p95={summary_data['benchmark_summary']['latencies_ms']['t1_sandboxed_write']['p95']:>7.2f} ms")
+    print(f"  T2 Quarantine Propose  : Mean={summary_data['benchmark_summary']['latencies_ms']['t2_quarantine_propose']['mean']:>7.2f} ms | p95={summary_data['benchmark_summary']['latencies_ms']['t2_quarantine_propose']['p95']:>7.2f} ms")
+    print(f"  T2 UI Channel Approval : Mean={summary_data['benchmark_summary']['latencies_ms']['t2_ui_approval']['mean']:>7.2f} ms | p95={summary_data['benchmark_summary']['latencies_ms']['t2_ui_approval']['p95']:>7.2f} ms")
+    print(f"  T2 Approved Execute    : Mean={summary_data['benchmark_summary']['latencies_ms']['t2_approved_execute']['mean']:>7.2f} ms | p95={summary_data['benchmark_summary']['latencies_ms']['t2_approved_execute']['p95']:>7.2f} ms")
+    print(f"  End-to-End Task Total  : Mean={summary_data['benchmark_summary']['latencies_ms']['end_to_end_task']['mean']:>7.2f} ms | p95={summary_data['benchmark_summary']['latencies_ms']['end_to_end_task']['p95']:>7.2f} ms")
+    print("\n--- Process Memory (MB) ---")
+    print(f"  Supervisor Process     : Mean={summary_data['benchmark_summary']['memory_mb']['supervisor_process']['mean']:>7.2f} MB | p95={summary_data['benchmark_summary']['memory_mb']['supervisor_process']['p95']:>7.2f} MB")
+    print(f"  Worker Subprocess      : Mean={summary_data['benchmark_summary']['memory_mb']['worker_subprocess']['mean']:>7.2f} MB | p95={summary_data['benchmark_summary']['memory_mb']['worker_subprocess']['p95']:>7.2f} MB")
+    print("\n--- Injected Failure Scenarios ---")
+    print(f"  1. Worker Killed Mid-Task : {'PASS' if f1['passed'] else 'FAIL'} (Supervisor survived, state clean)")
+    print(f"  2. Approval Denied         : {'PASS' if f2['passed'] else 'FAIL'} (Execution rejected, state REJECTED)")
+    print(f"  3. Approval Expired        : {'PASS' if f3['passed'] else 'FAIL'} (Execution rejected, state REJECTED_TIMEOUT)")
+    print("=" * 85)
+    print(f"Benchmark results successfully saved to: {out_file}\n")
 
-    return 0 if (t1_successes == n and t2_successes == n) else 1
+    all_passed = (success_count == n) and (state_leaks == 0) and f1["passed"] and f2["passed"] and f3["passed"]
+    return 0 if all_passed else 1
 
 
 if __name__ == "__main__":

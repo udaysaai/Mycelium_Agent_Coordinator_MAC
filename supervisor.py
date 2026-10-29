@@ -597,3 +597,38 @@ class SupervisorDaemon:
         proc.stdin.write(config_payload)
         proc.stdin.flush()
         return proc
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="MAC Privileged Supervisor Daemon")
+    parser.add_argument("--workspace", required=True, help="Workspace root directory")
+    parser.add_argument("--port-file", required=False, default=None, help="File to write active ports and secret")
+    parser.add_argument("--timeout", type=float, default=0.0, help="Optional auto-shutdown timeout in seconds")
+    args = parser.parse_args()
+
+    ws = Path(args.workspace).resolve()
+    daemon = SupervisorDaemon(workspace_root=ws)
+    daemon.start()
+
+    if args.port_file:
+        pf = Path(args.port_file).resolve()
+        pf.parent.mkdir(parents=True, exist_ok=True)
+        pf.write_text(json.dumps({
+            "pid": os.getpid(),
+            "worker_port": daemon.worker_port,
+            "ui_port": daemon.ui_port,
+            "ui_secret": daemon.ui_secret,
+            "worker_secret": daemon.worker_secret
+        }), encoding="utf-8")
+
+    try:
+        t0 = time.time()
+        while daemon._running:
+            if args.timeout > 0 and (time.time() - t0) > args.timeout:
+                break
+            time.sleep(0.2)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        daemon.stop()
