@@ -231,6 +231,7 @@ MUTATIONS: List[Mutation] = [
 ]
 
 FULL_SUITE_TESTS = [
+    "test_mac.py",
     "test_phase0_vertical_slice.py",
     "test_phase0_adversarial.py",
     "test_phase05_strengthened.py",
@@ -238,6 +239,10 @@ FULL_SUITE_TESTS = [
     "test_phase06_wiring.py",
     "test_phase06_state_integrity.py",
     "test_phase06_boundary_mutations.py",
+    "test_phase06_worker_containment.py",
+    "test_phase07_audit.py",
+    "test_phase07_wiring.py",
+    "test_phase07_containment.py",
 ]
 
 BOUNDARY_ONLY_TESTS = [
@@ -245,6 +250,10 @@ BOUNDARY_ONLY_TESTS = [
     "test_phase06_wiring.py",
     "test_phase06_state_integrity.py",
     "test_phase06_boundary_mutations.py",
+    "test_phase06_worker_containment.py",
+    "test_phase07_audit.py",
+    "test_phase07_wiring.py",
+    "test_phase07_containment.py",
 ]
 
 

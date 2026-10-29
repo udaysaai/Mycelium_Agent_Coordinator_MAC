@@ -1,0 +1,453 @@
+{
+  "metadata": {
+    "iterations": 20,
+    "transport": "NamedPipe",
+    "timestamp": 1793274677.9610233,
+    "date": "2026-10-29 17:21:17",
+    "os": "win32",
+    "python_version": "3.14.4"
+  },
+  "benchmark_summary": {
+    "total_runs": 20,
+    "done_count": 20,
+    "failed_count": 0,
+    "unverified_count": 0,
+    "state_leaks_count": 0,
+    "latencies_ms": {
+      "t1_sandboxed_write": {
+        "mean": 36.716,
+        "median": 33.968,
+        "p95": 55.842,
+        "min": 24.81,
+        "max": 65.229
+      },
+      "t2_quarantine_propose": {
+        "mean": 1.841,
+        "median": 1.263,
+        "p95": 6.363,
+        "min": 0.909,
+        "max": 7.829
+      },
+      "t2_ui_approval": {
+        "mean": 17.467,
+        "median": 15.674,
+        "p95": 27.331,
+        "min": 13.348,
+        "max": 31.016
+      },
+      "t2_approved_execute": {
+        "mean": 374.028,
+        "median": 353.228,
+        "p95": 448.526,
+        "min": 294.149,
+        "max": 666.634
+      },
+      "end_to_end_task": {
+        "mean": 1229.119,
+        "median": 1182.867,
+        "p95": 1516.371,
+        "min": 1048.727,
+        "max": 1722.471
+      }
+    },
+    "memory_mb": {
+      "supervisor_process": {
+        "mean": 48.121,
+        "median": 48.155,
+        "p95": 53.03,
+        "min": 43.02,
+        "max": 53.62
+      },
+      "worker_subprocess": {
+        "mean": 20.601,
+        "median": 20.625,
+        "p95": 20.71,
+        "min": 20.27,
+        "max": 20.73
+      }
+    }
+  },
+  "injected_failures": {
+    "worker_killed_mid_task": {
+      "scenario": "worker_killed_mid_task",
+      "worker_killed": true,
+      "supervisor_survived": true,
+      "unexecuted_in_db": true,
+      "passed": true
+    },
+    "approval_denied": {
+      "scenario": "operator_approval_denied",
+      "rejection_enforced": true,
+      "execution_blocked": true,
+      "passed": true
+    },
+    "approval_expired": {
+      "scenario": "approval_expired_timeout",
+      "timeout_enforced": true,
+      "state_marked_timeout": true,
+      "passed": true
+    }
+  },
+  "runs": [
+    {
+      "iteration": 1,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 33.714,
+        "t2_propose": 6.363,
+        "ui_approval": 20.594,
+        "t2_execute": 357.607,
+        "end_to_end": 1177.639
+      },
+      "memory_mb": {
+        "supervisor": 43.02,
+        "worker": 20.6
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 2,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 34.696,
+        "t2_propose": 1.67,
+        "ui_approval": 15.486,
+        "t2_execute": 420.794,
+        "end_to_end": 1233.454
+      },
+      "memory_mb": {
+        "supervisor": 43.23,
+        "worker": 20.27
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 3,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 32.639,
+        "t2_propose": 1.541,
+        "ui_approval": 14.236,
+        "t2_execute": 336.498,
+        "end_to_end": 1130.903
+      },
+      "memory_mb": {
+        "supervisor": 43.76,
+        "worker": 20.68
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 4,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 37.795,
+        "t2_propose": 1.258,
+        "ui_approval": 13.487,
+        "t2_execute": 336.124,
+        "end_to_end": 1102.549
+      },
+      "memory_mb": {
+        "supervisor": 44.34,
+        "worker": 20.6
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 5,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 29.636,
+        "t2_propose": 1.319,
+        "ui_approval": 15.179,
+        "t2_execute": 360.718,
+        "end_to_end": 1336.888
+      },
+      "memory_mb": {
+        "supervisor": 44.83,
+        "worker": 20.62
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 6,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 43.768,
+        "t2_propose": 7.829,
+        "ui_approval": 14.734,
+        "t2_execute": 342.602,
+        "end_to_end": 1143.436
+      },
+      "memory_mb": {
+        "supervisor": 45.4,
+        "worker": 20.68
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 7,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 29.999,
+        "t2_propose": 1.061,
+        "ui_approval": 17.21,
+        "t2_execute": 448.526,
+        "end_to_end": 1221.399
+      },
+      "memory_mb": {
+        "supervisor": 45.92,
+        "worker": 20.71
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 8,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 65.229,
+        "t2_propose": 0.909,
+        "ui_approval": 13.348,
+        "t2_execute": 334.859,
+        "end_to_end": 1264.058
+      },
+      "memory_mb": {
+        "supervisor": 46.69,
+        "worker": 20.64
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 9,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 35.148,
+        "t2_propose": 1.268,
+        "ui_approval": 19.737,
+        "t2_execute": 373.713,
+        "end_to_end": 1156.254
+      },
+      "memory_mb": {
+        "supervisor": 47.27,
+        "worker": 20.6
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 10,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 30.851,
+        "t2_propose": 0.981,
+        "ui_approval": 15.819,
+        "t2_execute": 332.787,
+        "end_to_end": 1090.372
+      },
+      "memory_mb": {
+        "supervisor": 47.78,
+        "worker": 20.27
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 11,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 24.81,
+        "t2_propose": 1.542,
+        "ui_approval": 23.892,
+        "t2_execute": 411.856,
+        "end_to_end": 1235.345
+      },
+      "memory_mb": {
+        "supervisor": 48.53,
+        "worker": 20.66
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 12,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 42.092,
+        "t2_propose": 1.939,
+        "ui_approval": 15.895,
+        "t2_execute": 316.052,
+        "end_to_end": 1176.438
+      },
+      "memory_mb": {
+        "supervisor": 49.12,
+        "worker": 20.61
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 13,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 34.222,
+        "t2_propose": 1.194,
+        "ui_approval": 15.851,
+        "t2_execute": 365.427,
+        "end_to_end": 1171.231
+      },
+      "memory_mb": {
+        "supervisor": 49.58,
+        "worker": 20.59
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 14,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 38.932,
+        "t2_propose": 1.014,
+        "ui_approval": 14.418,
+        "t2_execute": 409.922,
+        "end_to_end": 1516.371
+      },
+      "memory_mb": {
+        "supervisor": 50.06,
+        "worker": 20.56
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 15,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 32.074,
+        "t2_propose": 1.251,
+        "ui_approval": 31.016,
+        "t2_execute": 666.634,
+        "end_to_end": 1722.471
+      },
+      "memory_mb": {
+        "supervisor": 50.73,
+        "worker": 20.57
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 16,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 42.363,
+        "t2_propose": 1.284,
+        "ui_approval": 13.59,
+        "t2_execute": 294.149,
+        "end_to_end": 1048.727
+      },
+      "memory_mb": {
+        "supervisor": 51.28,
+        "worker": 20.73
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 17,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 33.161,
+        "t2_propose": 1.11,
+        "ui_approval": 27.331,
+        "t2_execute": 351.552,
+        "end_to_end": 1172.608
+      },
+      "memory_mb": {
+        "supervisor": 51.86,
+        "worker": 20.63
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 18,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 30.081,
+        "t2_propose": 1.036,
+        "ui_approval": 13.632,
+        "t2_execute": 354.905,
+        "end_to_end": 1188.094
+      },
+      "memory_mb": {
+        "supervisor": 52.38,
+        "worker": 20.65
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 19,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 55.842,
+        "t2_propose": 1.297,
+        "ui_approval": 15.529,
+        "t2_execute": 342.138,
+        "end_to_end": 1281.582
+      },
+      "memory_mb": {
+        "supervisor": 53.03,
+        "worker": 20.64
+      },
+      "verified": true,
+      "state_leak": false
+    },
+    {
+      "iteration": 20,
+      "success": true,
+      "has_verified_pass_receipt": true,
+      "latencies_ms": {
+        "t1_write": 27.265,
+        "t2_propose": 0.948,
+        "ui_approval": 18.359,
+        "t2_execute": 323.7,
+        "end_to_end": 1212.566
+      },
+      "memory_mb": {
+        "supervisor": 53.62,
+        "worker": 20.7
+      },
+      "verified": true,
+      "state_leak": false
+    }
+  ]
+}

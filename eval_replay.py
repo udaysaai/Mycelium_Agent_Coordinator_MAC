@@ -152,7 +152,7 @@ def run_benchmark_iteration(iter_idx: int, use_named_pipes: bool = True) -> Dict
       8. Measure latencies, supervisor & worker memory.
       9. Verify 0 state leaks.
     """
-    with tempfile.TemporaryDirectory(prefix=f"mac_bench_{iter_idx}_") as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix=f"mac_bench_{iter_idx}_", ignore_cleanup_errors=True) as tmp_dir:
         ws_root = Path(tmp_dir).resolve()
         sandbox_dir = ws_root / "workspace_sandbox"
         sandbox_dir.mkdir(parents=True, exist_ok=True)
@@ -299,7 +299,7 @@ def run_injected_failure_worker_killed(iter_idx: int = 101, use_named_pipes: boo
     Failure Scenario 1: Worker is hard-killed mid-task while action is quarantined.
     Supervisor must survive, handle disconnection, and leave quarantine unexecuted in DB.
     """
-    with tempfile.TemporaryDirectory(prefix="mac_fail_kill_") as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix="mac_fail_kill_", ignore_cleanup_errors=True) as tmp_dir:
         ws_root = Path(tmp_dir).resolve()
         (ws_root / "workspace_sandbox").mkdir(parents=True, exist_ok=True)
 
@@ -381,7 +381,7 @@ def run_injected_failure_approval_denied(iter_idx: int = 102, use_named_pipes: b
     Failure Scenario 2: Operator explicitly rejects T2 action via UI channel.
     Worker execution attempt must fail, and status must stay REJECTED.
     """
-    with tempfile.TemporaryDirectory(prefix="mac_fail_deny_") as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix="mac_fail_deny_", ignore_cleanup_errors=True) as tmp_dir:
         ws_root = Path(tmp_dir).resolve()
         (ws_root / "workspace_sandbox").mkdir(parents=True, exist_ok=True)
 
@@ -482,7 +482,7 @@ def run_injected_failure_approval_expired(iter_idx: int = 103, use_named_pipes: 
     Failure Scenario 3: Action expires before or during execution.
     Supervisor must detect expiration, reject approval/execution, and mark REJECTED_TIMEOUT.
     """
-    with tempfile.TemporaryDirectory(prefix="mac_fail_exp_") as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix="mac_fail_exp_", ignore_cleanup_errors=True) as tmp_dir:
         ws_root = Path(tmp_dir).resolve()
         (ws_root / "workspace_sandbox").mkdir(parents=True, exist_ok=True)
 

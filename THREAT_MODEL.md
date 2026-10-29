@@ -108,3 +108,4 @@ Under the Windows NT security architecture:
 1. **Hypervisor Containerization (Phase 1.0)**: Move worker execution into WSL2 or lightweight Linux container with isolated filesystem namespace and disabled network interfaces (`--network none`).
 2. **Dedicated Service Account**: Run the worker under a separate low-privileged Windows local user account (`MAC_Worker_User`) with explicit Deny ACLs on the host user profile.
 3. **Windows Filtering Platform (WFP) Callout**: Implement a local WFP driver or packet filter restricting loopback IPC to supervisor ports and blocking outbound internet traffic.
+
