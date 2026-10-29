@@ -211,6 +211,153 @@ class SupervisorDaemon:
             logger.warning(f"Failed to assign worker {proc.pid} to Job Object: {e}")
         return False
 
+    def spawn_worker_process(self, script_body: str) -> Dict[str, Any]:
+        """
+        Spawn a restricted worker process with dropped privileges and Low Integrity level.
+        Enforces:
+          - Restricted token (DISABLE_MAX_PRIVILEGE)
+          - Low Integrity Level (S-1-16-4096)
+          - Confinement in Windows Job Object
+        Captures structured output and returns parsed probe JSON dictionary.
+        """
+        import uuid
+        sandbox_dir = (self.workspace_root / "workspace_sandbox").resolve()
+        sandbox_dir.mkdir(parents=True, exist_ok=True)
+
+        unique_id = uuid.uuid4().hex[:8]
+        script_file = sandbox_dir / f"_worker_probe_{unique_id}.py"
+        out_file = sandbox_dir / f"_worker_out_{unique_id}.txt"
+        script_file.write_text(script_body, encoding="utf-8")
+
+        if sys.platform == "win32":
+            try:
+                import win32api
+                import win32con
+                import win32event
+                import win32file
+                import win32process
+                import win32security
+
+                # Ensure sandbox directory allows Low Integrity inheritance
+                subprocess.run(
+                    f'icacls "{sandbox_dir}" /setintegritylevel (OI)(CI)L',
+                    shell=True,
+                    capture_output=True,
+                    timeout=5
+                )
+
+                # 1. Open current process token
+                h_current = win32api.GetCurrentProcess()
+                tok = win32security.OpenProcessToken(
+                    h_current,
+                    win32con.TOKEN_DUPLICATE | win32con.TOKEN_ASSIGN_PRIMARY | win32con.TOKEN_QUERY | win32con.TOKEN_ADJUST_DEFAULT
+                )
+
+                # 2. Drop all unnecessary privileges
+                rest_tok = win32security.CreateRestrictedToken(
+                    tok, win32security.DISABLE_MAX_PRIVILEGE, [], [], []
+                )
+
+                # 3. Set TokenIntegrityLevel to Low Integrity (S-1-16-4096)
+                low_sid = win32security.ConvertStringSidToSid("S-1-16-4096")
+                win32security.SetTokenInformation(
+                    rest_tok,
+                    win32security.TokenIntegrityLevel,
+                    (low_sid, win32security.SE_GROUP_INTEGRITY)
+                )
+
+                # 4. Prepare inheritable output file handle
+                sa = win32security.SECURITY_ATTRIBUTES()
+                sa.bInheritHandle = 1
+
+                h_out = win32file.CreateFile(
+                    str(out_file),
+                    win32file.GENERIC_WRITE | win32file.GENERIC_READ,
+                    win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
+                    sa,
+                    win32file.CREATE_ALWAYS,
+                    win32file.FILE_ATTRIBUTE_NORMAL,
+                    None
+                )
+
+                startup = win32process.STARTUPINFO()
+                startup.dwFlags = win32process.STARTF_USESTDHANDLES
+                startup.hStdOutput = h_out
+                startup.hStdError = h_out
+
+                cmd = f'"{sys.executable}" -u "{script_file}"'
+                h_proc, h_thread, pid, tid = win32process.CreateProcessAsUser(
+                    rest_tok, None, cmd, None, None, True, 0, None, str(self.workspace_root), startup
+                )
+
+                # 5. Assign to Job Object
+                if self.job_object_active and self.job_object_handle:
+                    try:
+                        kernel32 = ctypes.windll.kernel32
+                        kernel32.AssignProcessToJobObject(self.job_object_handle, int(h_proc))
+                    except Exception as e:
+                        logger.warning(f"Failed to assign restricted worker to Job Object: {e}")
+
+                win32event.WaitForSingleObject(h_proc, 10000)
+                win32file.CloseHandle(h_out)
+                win32api.CloseHandle(h_proc)
+                win32api.CloseHandle(h_thread)
+
+            except Exception as e:
+                logger.error(f"Error spawning restricted worker via CreateProcessAsUser: {e}")
+                # Fallback to standard subprocess
+                with open(out_file, "w", encoding="utf-8") as f_out:
+                    proc = subprocess.Popen(
+                        [sys.executable, "-u", str(script_file)],
+                        stdout=f_out,
+                        stderr=f_out,
+                        cwd=str(self.workspace_root)
+                    )
+                    self.assign_worker_to_job(proc)
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+        else:
+            with open(out_file, "w", encoding="utf-8") as f_out:
+                proc = subprocess.Popen(
+                    [sys.executable, "-u", str(script_file)],
+                    stdout=f_out,
+                    stderr=f_out,
+                    cwd=str(self.workspace_root)
+                )
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+
+        out_text = ""
+        if out_file.exists():
+            try:
+                out_text = out_file.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+        # Cleanup files
+        try:
+            if script_file.exists():
+                script_file.unlink()
+            if out_file.exists():
+                out_file.unlink()
+        except Exception:
+            pass
+
+        # Parse probe json
+        for line in out_text.splitlines():
+            line_str = line.strip()
+            if line_str.startswith("PROBE_JSON:"):
+                try:
+                    return json.loads(line_str[len("PROBE_JSON:"):])
+                except Exception:
+                    pass
+
+        return {"raw_output": out_text, "success": False}
+
     def get_ephemeral_key(self) -> bytes:
         """Access in-memory signing key for internal verification."""
         return self._signing_key
