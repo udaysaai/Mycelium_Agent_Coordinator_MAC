@@ -251,17 +251,17 @@ def test_w6_guess_ui_pipe_and_send_approval_blocked(containment_env):
 
     probe_script = f"""
 import json, time
-import win32file, win32pipe, pywintypes
-
 pipe_path = {json.dumps(ui_pipe)}
 res = {{}}
 try:
-    h = win32file.CreateFile(
+    import _winapi
+    h = _winapi.CreateFile(
         pipe_path,
-        win32file.GENERIC_READ | win32file.GENERIC_WRITE,
-        0, None,
-        win32file.OPEN_EXISTING,
-        0, None
+        _winapi.GENERIC_READ | _winapi.GENERIC_WRITE,
+        0,
+        _winapi.OPEN_EXISTING,
+        0,
+        0
     )
     # Attempt forgery with guessed secret
     forged_msg = json.dumps({{
@@ -269,13 +269,10 @@ try:
         "secret": "guessed_secret_1234567890abcdef",
         "quarantine_id": "nonexistent"
     }}) + "\\n"
-    win32file.WriteFile(h, forged_msg.encode("utf-8"))
-    win32file.FlushFileBuffers(h)
-    err, data = win32file.ReadFile(h, 65536)
-    win32file.CloseHandle(h)
+    _winapi.WriteFile(h, forged_msg.encode("utf-8"))
+    data, err = _winapi.ReadFile(h, 65536)
+    _winapi.CloseHandle(h)
     res = json.loads(data.decode("utf-8").strip())
-except pywintypes.error as pe:
-    res = {{"pipe_blocked": True, "winerror": pe.winerror}}
 except Exception as e:
     res = {{"pipe_blocked": True, "error": str(e)}}
 
