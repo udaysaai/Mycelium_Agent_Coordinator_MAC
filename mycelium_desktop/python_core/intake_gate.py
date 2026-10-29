@@ -30,7 +30,7 @@ class IntakeOutcome(BaseModel):
 class IntakeGate:
     """
     Plane 1: Conversational Parameter Intake & Plan Gate.
-    Guarantees no 404 routing errors on greetings, guides vague user prompts
+    Handles conversational greetings deterministically, guides vague user prompts
     into machine-checkable TaskContracts, and locks down execution predicates.
     """
 
@@ -39,6 +39,10 @@ class IntakeGate:
         r"^(good morning|good afternoon|good evening|good night)\b",
         r"^(who are you|what are you|what can you do|help me|help)\b",
         r"^(kaise ho|kya hal hai|kya kar sakte ho)\b",
+    ]
+
+    MUTATION_KEYWORDS = [
+        "write", "create", "save", "make", "dump", "export", "generate", "record"
     ]
 
     def __init__(self):
@@ -80,8 +84,8 @@ class IntakeGate:
             )
 
         # 3. Slot-filling inspection for file creation/mutation intents
-        file_mutation_keywords = ["write", "create file", "save file", "write file", "make file"]
-        if any(k in lower_text for k in file_mutation_keywords) and not ("command" in payload):
+        is_mutation_intent = any(k in lower_text for k in self.MUTATION_KEYWORDS)
+        if is_mutation_intent and not ("command" in payload) and payload.get("tool_name") != "execute_shell_command":
             has_path = bool(payload.get("file_path") or payload.get("filePath"))
             has_content = "content" in payload
 

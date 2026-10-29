@@ -57,8 +57,9 @@ class TaskContractStatus(str, Enum):
 class TaskContract(BaseModel):
     """
     Immutable specification contract binding user goals to machine-checkable predicates.
+    Enforces strict immutability (frozen=True) to prevent in-flight tampering.
     """
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True, frozen=True)
 
     contractId: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
@@ -96,14 +97,14 @@ class TaskContract(BaseModel):
 
 class VerificationReceipt(BaseModel):
     """
-    Cryptographic, out-of-band proof of real-world state alteration.
+    Deterministic, out-of-band SHA-256 proof of real-world state alteration.
     Never generated or graded by the acting agent.
     """
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     receiptId: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
-        description="Cryptographic identifier for this proof receipt."
+        description="Unique identifier for this proof receipt."
     )
     contractId: Optional[str] = Field(
         default=None,
@@ -179,7 +180,7 @@ class ActionRequest(BaseModel):
     )
     oneShotToken: Optional[str] = Field(
         default=None,
-        description="Cryptographic one-shot authorization token for T2 mutations."
+        description="HMAC-SHA256 signed one-shot authorization token for T2 mutations."
     )
     timestamp: float = Field(
         default_factory=time.time,
@@ -248,7 +249,7 @@ class HOLQuarantineEvent(BaseModel):
     )
     oneShotToken: str = Field(
         default="",
-        description="Cryptographic one-time token required to unlock execution."
+        description="HMAC-SHA256 signed one-time token required to unlock execution."
     )
     plainImpact: str = Field(
         default="",
