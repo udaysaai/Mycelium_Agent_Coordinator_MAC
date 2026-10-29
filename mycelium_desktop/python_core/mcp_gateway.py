@@ -2,7 +2,7 @@
 US Neural - Mycelium Semantic Protocol & HOL Guard
 Module: mcp_gateway.py
 Description: Production-grade Model Context Protocol (MCP) Gateway.
-             Features Mycelium's local sub-15ms semantic vector-mesh for tool discovery
+             Features Mycelium's local semantic vector-mesh for tool discovery
              and strict Pydantic v2 argument validation. Zero prompt-stuffing.
 """
 
@@ -30,7 +30,7 @@ class ToolValidationError(ValueError):
 class SemanticVectorMesh:
     """
     Mycelium Local Semantic Vector-Mesh.
-    Provides sub-millisecond (<1ms, guaranteed <15ms) semantic discovery and similarity
+    Provides in-memory semantic discovery (benchmarked typically <1ms)
     ranking across tool definitions without relying on external APIs or slow embedding models.
     
     Uses character 3-gram and tokenized term-frequency with sublinear scaling
@@ -186,7 +186,7 @@ class MCPGateway:
 
     def discover_tools(self, intent_or_query: str, top_k: int = 3) -> List[ToolMatchResult]:
         """
-        Perform sub-15ms semantic matching against the registered tools mesh.
+        Perform in-memory semantic matching against the registered tools mesh.
         Returns ranked tool matches with exact latency metrics.
         """
         start = time.perf_counter()

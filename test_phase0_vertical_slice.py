@@ -2,12 +2,12 @@
 US Neural - Mycelium Agent Coordinator (MAC)
 Phase 0 Thin Vertical Slice: Comprehensive Replay & Evaluation Test Suite
 Verifies:
-  1. Conversational Intake Gate & TaskContract Compilation (No 404 false alarms).
+  1. Conversational Intake Gate & TaskContract Compilation (Intent handling).
   2. T0 Immediate Read-Only Bypass (<10ms, zero operator friction).
   3. T1 Reversible Sandboxed Mutation (Atomic fsync write & receipt generation).
   4. T2 Quarantine Gate (Deterministic callHash, plain impact preview, 15m timeout).
   5. Operator Rejection & Approval Workflows with Signed One-Shot Token.
-  6. Cryptographic One-Shot Replay Prevention (Zero unapproved bypasses).
+  6. HMAC One-Shot Replay Invalidation (State transition enforcement).
   7. Deterministic Out-of-Band Verifier (Positive verification & Negative tampering detection).
   8. SQLite WAL State Store Persistence Across Reboots.
 """
@@ -250,11 +250,11 @@ def test_t2_quarantine_approval_with_token(test_env):
 
 
 # ============================================================================
-# 5. Token Forgery & One-Shot Replay Prevention
+# 5. Token Forgery & One-Shot Replay Invalidation
 # ============================================================================
 
 def test_t2_token_replay_blocked(test_env):
-    """Replaying an already-consumed one-shot token must be blocked (100% prevention)."""
+    """Replaying an already-consumed one-shot token must be blocked upon state transition."""
     store = test_env["store"]
     coord = test_env["coordinator"]
     test_env["decision"]["approved"] = True

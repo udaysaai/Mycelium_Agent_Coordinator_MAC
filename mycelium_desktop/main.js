@@ -597,7 +597,7 @@ async function testProviderConnection({ provider, key, apiKey, endpoint, model, 
       }
     }
 
-    // 5. OLLAMA / LOCAL (100% Offline)
+    // 5. OLLAMA / LOCAL (Local / Offline)
     if (p === 'ollama') {
       const host = (endpoint || baseUrl || 'http://localhost:11434').replace(/\/+$/, '');
       try {
@@ -887,7 +887,7 @@ If no tool is required (direct questions, explanations, coding advice), respond 
       }
     }
 
-    // 5. OLLAMA / LOCAL (100% Offline / Free)
+    // 5. OLLAMA / LOCAL (Local / Offline / Free)
     if (provider === 'ollama') {
       const host = (cfg.ollamaEndpoint || 'http://localhost:11434').replace(/\/+$/, '');
       const model = cfg.ollamaModel || 'llama3.2';

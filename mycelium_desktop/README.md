@@ -19,12 +19,12 @@ A full-fledged, standalone Desktop Graphical User Interface (GUI) for the **Myce
      - Weather Sensor Cluster Node (`0.42ms`)
      - Crypto Telemetry Node (`0.58ms`)
      - Real-time pulsating green ping indicators.
-   - **HOL Zero-Trust Policy Status Box**: Live SLA and safety classification telemetry.
+   - **HOL Policy Status Box**: Live safety classification telemetry.
 
 2. **Central Workspace & Chat Pane**:
    - Natural language input bar ("*Ask Mycelium to inspect code, run terminal tasks, or edit files...*").
    - Privilege tier toggle: `PERSON (Foreground)` vs `BACKGROUND (Automated)`.
-   - Real-time **Claude Code Reasoning Trace Stream** displaying sub-10ms semantic discovery matches.
+   - Real-time **Claude Code Reasoning Trace Stream** displaying semantic discovery matches.
    - Formatted output blocks with execution status, exit codes, and latency breakdowns.
 
 3. **Bottom Execution & Diff Drawer (Toggleable)**:

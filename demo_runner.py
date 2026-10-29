@@ -44,7 +44,7 @@ def render_banner():
 [bold cyan]╚██████╔╝███████║    ██║ ╚████║███████╗╚██████╔╝██║  ██║██║  ██║███████╗[/bold cyan]
 [bold cyan] ╚═════╝ ╚══════╝    ╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝[/bold cyan]
 [bold green]    ⚡ MYCELIUM AGENT COORDINATOR (MAC) & HOL GUARD SPLIT-EXEC DAEMON ⚡    [/bold green]
-[dim italic]       100% Clean-Room Semantic Mesh • Human-On-The-Loop Safety Gate       [/dim italic]
+[dim italic]       Clean-Room Semantic Mesh • Human-On-The-Loop Safety Gate       [/dim italic]
 """
     console.print(banner)
 
@@ -241,11 +241,11 @@ def run_test_suite(auto_mode: bool = False):
     summary_table.add_column("Observed Metric", style="green")
     summary_table.add_column("Status", style="bold green")
 
-    summary_table.add_row("Semantic Vector-Mesh", "<15ms Tool Discovery", f"{disc_latency:.3f} ms", "PASSED [100%]")
-    summary_table.add_row("READ_ONLY Fast-Path", "<15ms Zero-Penalty Bypass", f"{t1_result.latencyMs:.2f} ms", "PASSED [100%]")
-    summary_table.add_row("HOL Guard Quarantine", "Intercept all MUTATING actions", "100% Intercepted", "PASSED [100%]")
-    summary_table.add_row("LocalExecDaemon", "Real Process Isolation & Timeout", "Zero Hangs / Real Subprocess", "PASSED [100%]")
-    summary_table.add_row("Pydantic v2 Gateway", "Strict Schema Validation", "100% Validated", "PASSED [100%]")
+    summary_table.add_row("Semantic Vector-Mesh", "<15ms Tool Discovery", f"{disc_latency:.3f} ms", "PASSED")
+    summary_table.add_row("READ_ONLY Fast-Path", "<15ms Zero-Penalty Bypass", f"{t1_result.latencyMs:.2f} ms", "PASSED")
+    summary_table.add_row("HOL Guard Quarantine", "Intercept all MUTATING actions", "Quarantine Enforced", "PASSED")
+    summary_table.add_row("LocalExecDaemon", "Real Process Isolation & Timeout", "Zero Hangs / Real Subprocess", "PASSED")
+    summary_table.add_row("Pydantic v2 Gateway", "Strict Schema Validation", "Strictly Enforced", "PASSED")
 
     console.print(summary_table)
     console.print(Panel.fit(

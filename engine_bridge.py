@@ -44,7 +44,7 @@ class WeatherTelemetryParams(BaseModel):
 
 
 class CryptoTelemetryParams(BaseModel):
-    network: str = Field(default="mycelium-mesh-l1", description="Target cryptographic consensus network.")
+    network: str = Field(default="mycelium-mesh-l1", description="Target network.")
 
 
 def _get_weather_telemetry(station_id: str = "US-NEURAL-SENSOR-01") -> Dict[str, Any]:
@@ -107,7 +107,7 @@ class EngineBridge:
 
         self.gateway.register_tool(
             name="crypto_telemetry_node",
-            description="Query cryptographic proof-of-transit, consensus metrics, and mesh chain health.",
+            description="Query node proof-of-transit, consensus metrics, and mesh chain health.",
             safety_tier=SafetyTier.READ_ONLY,
             schema_model=CryptoTelemetryParams,
             handler=_get_crypto_telemetry,

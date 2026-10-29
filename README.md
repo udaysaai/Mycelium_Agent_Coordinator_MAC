@@ -3,10 +3,10 @@
 [![Architecture: Split-Execution](https://img.shields.io/badge/Architecture-Split--Execution-00ffcc.svg)](#)
 [![Python: 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](#)
 [![Pydantic: v2](https://img.shields.io/badge/Pydantic-v2-E92063.svg)](#)
-[![Clean-Room: 100%](https://img.shields.io/badge/Clean--Room-100%25%20Original-green.svg)](#)
-[![Semantic Mesh: <15ms](https://img.shields.io/badge/Semantic%20Mesh-%3C15ms%20SLA-purple.svg)](#)
+[![Clean-Room: Original](https://img.shields.io/badge/Clean--Room-Original%20Implementation-green.svg)](#)
+[![Semantic Mesh: Sublinear](https://img.shields.io/badge/Semantic%20Mesh-Sublinear%20Discovery-purple.svg)](#)
 
-> **US NEURAL ARCHITECTURE DIRECTIVE**: 100% clean-room, original, open-source Agent Coordinator and Split-Execution Daemon powered by the Mycelium Semantic Protocol and HOL (Human-On-The-Loop) Guard.
+> **US NEURAL ARCHITECTURE DIRECTIVE**: Clean-room, original, open-source Agent Coordinator and Split-Execution Daemon powered by the Mycelium Semantic Protocol and HOL (Human-On-The-Loop) Guard.
 
 ---
 
@@ -69,9 +69,9 @@ flowchart TD
 
 ### 3. `mcp_gateway.py` (Model Context Protocol Gateway)
 - **`SemanticVectorMesh`**:
-  - Sub-millisecond (<1ms, guaranteed <15ms SLA) in-memory sparse vector indexing.
-  - Uses sublinear character 3-gram and token frequencies with cosine similarity dot-products.
-  - **Zero prompt-stuffing** — tools are discovered dynamically by intent.
+  - In-memory sparse vector indexing with sublinear character 3-gram and token frequencies.
+  - Cosine similarity matching typically completing in sub-millisecond ranges (benchmarked under 15ms target).
+  - **Dynamic Tool Discovery** — tools are matched by user intent without static prompt bloat.
 - **`MCPGateway`**:
   - Manages tool registries and parameter schemas.
   - Enforces strict **Pydantic v2 validation** before tool handlers execute.
@@ -79,13 +79,13 @@ flowchart TD
 ### 4. `coordinator.py` (Central Intelligence & HOL Safety Gate)
 - **`MyceliumCoordinator`**:
   - Central traffic manager routing agent requests.
-  - **Zero-Latency Bypass**: Dispatches `READ_ONLY` actions immediately (<15ms SLA).
-  - **HOL Guard Quarantine**: Intercepts any `MUTATING` action or background state-altering command, halting execution until an operator confirms via `human_confirmation_hook`.
+  - **Fast-Path**: Dispatches idempotent `READ_ONLY` inspection queries directly without persistence overhead.
+  - **HOL Guard Quarantine**: Intercepts unapproved mutating actions or state-altering commands, halting execution until an operator confirms via `human_confirmation_hook`.
   - Blocks rejected actions with HTTP 403-equivalent exit codes.
 
 ### 5. `demo_runner.py` (Interactive Terminal Verification)
 - Standalone Rich terminal application demonstrating:
-  - **Test 1**: Foreground `READ_ONLY` system diagnostics -> Auto-executed in **0.15ms** (<15ms SLA).
+  - **Test 1**: Foreground `READ_ONLY` system diagnostics -> Auto-executed via fast-path.
   - **Test 1B**: Workspace sandboxed file read -> Auto-executed without quarantine.
   - **Test 2**: Dangerous `MUTATING` shell command -> Intercepted by HOL Guard -> Prompts operator -> Dispatched to `LocalExecDaemon` on approval.
   - **Test 3**: Background `MUTATING` request -> Quarantined and denied by defensive policy.
@@ -116,13 +116,13 @@ pytest test_mac.py -v
 
 | Subsystem | Requirement / SLA | Observed Real-World Metric | Verdict |
 | :--- | :--- | :--- | :--- |
-| **Semantic Vector Mesh** | `< 15.00 ms` | **`0.082 ms`** | **EXCEEDED (180x Faster)** |
-| **READ_ONLY Dispatch** | `< 15.00 ms` | **`0.150 ms`** | **EXCEEDED (100x Faster)** |
-| **HOL Guard Interception** | 100% Mutating actions quarantined | **100% Intercepted** | **PASSED** |
+| **Semantic Vector Mesh** | `< 15.00 ms` | **`0.082 ms`** | **PASSED (Sub-millisecond)** |
+| **READ_ONLY Dispatch** | `< 15.00 ms` | **`0.150 ms`** | **PASSED (Sub-millisecond)** |
+| **HOL Guard Interception** | Mutating actions quarantined | **Quarantine Enforced** | **PASSED** |
 | **Subprocess Isolation** | Real OS execution & timeout catch | **Clean process kill & exitCode -1** | **PASSED** |
-| **Schema Validation** | Strict Pydantic v2 argument validation | **100% Enforced** | **PASSED** |
+| **Schema Validation** | Strict Pydantic v2 argument validation | **Strictly Enforced** | **PASSED** |
 
 ---
 
 ## 🛡️ License & Clean-Room Guarantee
-Developed 100% clean-room from first principles by US Neural Systems Architecture. Contains zero third-party proprietary code or internal endpoints. Open-source under Apache-2.0.
+Developed clean-room from first principles by US Neural Systems Architecture. Contains zero third-party proprietary code or internal endpoints. Open-source under Apache-2.0.
