@@ -43,7 +43,16 @@ contextBridge.exposeInMainWorld('mycelium', {
   dispatchIntent: (data) => ipcRenderer.send('dispatch-intent', data),
   
   // HOL (Human-On-The-Loop) Quarantine Decision
-  submitHolDecision: (quarantineId, approved) => ipcRenderer.send('hol-decision', { quarantineId, approved }),
+  submitHolDecision: (quarantineId, approved) => {
+    if (typeof quarantineId !== 'string' || !quarantineId.trim()) {
+      throw new Error('Invalid quarantineId: must be a non-empty string');
+    }
+    if (typeof approved !== 'boolean') {
+      throw new Error('Invalid approved flag: must be a boolean');
+    }
+    ipcRenderer.send('hol-decision', { quarantineId: quarantineId.trim(), approved });
+  },
+  requestStatus: () => ipcRenderer.invoke('get-status'),
 
   // Workspace Operations
   getWorkspaceTree: () => ipcRenderer.send('get-workspace-tree'),

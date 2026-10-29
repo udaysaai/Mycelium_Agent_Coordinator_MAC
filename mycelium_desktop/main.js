@@ -10,6 +10,7 @@ const { app, BrowserWindow, ipcMain, Menu, shell, dialog, Tray, nativeImage } = 
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const net = require('net');
 const { spawn, spawnSync } = require('child_process');
 const readline = require('readline');
 
@@ -28,10 +29,32 @@ if (app && app.commandLine) {
 let mainWindow = null;
 let pythonDaemon = null;
 let pythonRl = null;
+let supervisorProcess = null;
+let uiPipeClient = null;
+let activeUiPipe = null;
+let activeUiSecret = null;
 let registryProcess = null;
 let activeLLMAbortController = null;
 let tray = null;
 let cachedPythonCommand = undefined;
+
+/**
+ * Dynamically discover supervisor.py
+ */
+function findSupervisorScript() {
+  const candidates = [
+    path.join(__dirname, 'supervisor.py'),
+    path.resolve(__dirname, '..', 'supervisor.py'),
+    path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'supervisor.py'),
+    path.join(process.resourcesPath || '', 'supervisor.py')
+  ];
+  for (const c of candidates) {
+    if (c && fs.existsSync(c)) {
+      return { scriptPath: c, dirPath: path.dirname(c) };
+    }
+  }
+  return null;
+}
 
 // Paths & Configuration
 const CONFIG_DIR = path.join(os.homedir(), '.mycelium');
@@ -223,14 +246,7 @@ function saveStoredConfig(newConfig) {
 }
 
 function spawnPythonDaemon() {
-  if (pythonDaemon) return;
-
-  const engine = findEngineScript();
-  if (!engine) {
-    console.log('[Supervisor] Python coordinator script (engine_bridge.py) not found. Running in Standalone Desktop LLM Mode.');
-    notifyRendererStandaloneMode();
-    return;
-  }
+  if (pythonDaemon || supervisorProcess) return;
 
   const pythonCmd = resolvePythonCommand();
   if (!pythonCmd) {
@@ -239,56 +255,166 @@ function spawnPythonDaemon() {
     return;
   }
 
-  try {
-    const isPyLauncher = path.basename(pythonCmd).toLowerCase().startsWith('py');
-    const spawnArgs = isPyLauncher ? ['-3', engine.scriptPath] : [engine.scriptPath];
+  const supScript = findSupervisorScript();
+  const engine = findEngineScript();
+  const isPyLauncher = path.basename(pythonCmd).toLowerCase().startsWith('py');
+  const baseDir = path.resolve(__dirname, '..');
+  const wsDir = path.join(baseDir, 'workspace_sandbox');
 
-    console.log(`[Supervisor] Spawning Python daemon: ${pythonCmd} ${spawnArgs.join(' ')}`);
-    pythonDaemon = spawn(pythonCmd, spawnArgs, {
-      cwd: engine.dirPath,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PYTHONUNBUFFERED: '1' }
-    });
+  if (supScript) {
+    try {
+      const supArgs = isPyLauncher
+        ? ['-3', supScript.scriptPath, '--workspace', wsDir]
+        : [supScript.scriptPath, '--workspace', wsDir];
 
-    pythonDaemon.on('error', (err) => {
-      console.warn('[Supervisor] Python process emitted error (caught gracefully):', err.message);
-      pythonDaemon = null;
-      notifyRendererStandaloneMode();
-    });
-
-    pythonDaemon.on('exit', (code, signal) => {
-      console.log(`[Supervisor] Daemon exited with code ${code}, signal ${signal}`);
-      pythonDaemon = null;
-    });
-
-    if (pythonDaemon.stdout) {
-      pythonRl = readline.createInterface({
-        input: pythonDaemon.stdout,
-        terminal: false
+      console.log(`[Supervisor] Spawning supervisor process: ${pythonCmd} ${supArgs.join(' ')}`);
+      supervisorProcess = spawn(pythonCmd, supArgs, {
+        cwd: supScript.dirPath,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
       });
 
-      pythonRl.on('line', (line) => {
-        const trimmed = line.trim();
-        if (!trimmed) return;
-        try {
-          const msg = JSON.parse(trimmed);
-          handleDaemonMessage(msg);
-        } catch (err) {
-          // ignore
+      supervisorProcess.on('error', (err) => {
+        console.warn('[Supervisor] Supervisor process error:', err.message);
+        supervisorProcess = null;
+      });
+
+      supervisorProcess.on('exit', (code, signal) => {
+        console.log(`[Supervisor] Supervisor process exited with code ${code}, signal ${signal}`);
+        supervisorProcess = null;
+        if (uiPipeClient) {
+          try { uiPipeClient.end(); } catch (e) {}
+          uiPipeClient = null;
         }
       });
-    }
 
-    if (pythonDaemon.stderr) {
-      pythonDaemon.stderr.on('data', (data) => {
-        const errText = data.toString('utf-8');
-        console.warn('[Supervisor stderr]:', errText.trim());
-      });
+      if (supervisorProcess.stdout) {
+        const supRl = readline.createInterface({
+          input: supervisorProcess.stdout,
+          terminal: false
+        });
+
+        supRl.on('line', (line) => {
+          const trimmed = line.trim();
+          if (!trimmed) return;
+          if (trimmed.startsWith('SUPERVISOR_HANDSHAKE:')) {
+            try {
+              const handshake = JSON.parse(trimmed.slice('SUPERVISOR_HANDSHAKE:'.length));
+              activeUiPipe = handshake.ui_pipe;
+              activeUiSecret = handshake.ui_secret;
+              connectToSupervisorPipe(activeUiPipe, activeUiSecret);
+            } catch (e) {
+              console.warn('[Supervisor Handshake Parse Error]:', e.message);
+            }
+          } else if (trimmed.startsWith('SUPERVISOR_READY:')) {
+            const parts = {};
+            trimmed.slice('SUPERVISOR_READY:'.length).split(':').forEach((kv) => {
+              const [k, v] = kv.split('=', 2);
+              if (k && v) parts[k] = v;
+            });
+            if (parts.pipe && parts.secret) {
+              activeUiPipe = parts.pipe;
+              activeUiSecret = parts.secret;
+              connectToSupervisorPipe(activeUiPipe, activeUiSecret);
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('[Supervisor] Failed to spawn supervisor:', err.message);
     }
+  }
+
+  if (engine) {
+    try {
+      const spawnArgs = isPyLauncher ? ['-3', engine.scriptPath] : [engine.scriptPath];
+
+      console.log(`[Supervisor] Spawning Python engine bridge: ${pythonCmd} ${spawnArgs.join(' ')}`);
+      pythonDaemon = spawn(pythonCmd, spawnArgs, {
+        cwd: engine.dirPath,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          PYTHONUNBUFFERED: '1',
+          MAC_UI_PIPE: activeUiPipe || '',
+          MAC_UI_SECRET: activeUiSecret || ''
+        }
+      });
+
+      pythonDaemon.on('error', (err) => {
+        console.warn('[Supervisor] Python bridge process emitted error:', err.message);
+        pythonDaemon = null;
+      });
+
+      pythonDaemon.on('exit', (code, signal) => {
+        console.log(`[Supervisor] Engine bridge exited with code ${code}, signal ${signal}`);
+        pythonDaemon = null;
+      });
+
+      if (pythonDaemon.stdout) {
+        pythonRl = readline.createInterface({
+          input: pythonDaemon.stdout,
+          terminal: false
+        });
+
+        pythonRl.on('line', (line) => {
+          const trimmed = line.trim();
+          if (!trimmed) return;
+          try {
+            const msg = JSON.parse(trimmed);
+            handleDaemonMessage(msg);
+          } catch (err) {}
+        });
+      }
+    } catch (err) {
+      console.warn('[Supervisor] Failed to spawn engine bridge:', err.message);
+    }
+  }
+}
+
+function connectToSupervisorPipe(pipePath, secret) {
+  if (uiPipeClient && !uiPipeClient.destroyed) return;
+
+  try {
+    uiPipeClient = net.connect(pipePath, () => {
+      console.log('[Main Process] Connected to supervisor UI Named Pipe:', pipePath);
+      uiPipeClient.write(JSON.stringify({ type: 'AUTH', secret: secret }) + '\n');
+    });
+
+    let pipeBuffer = '';
+    uiPipeClient.on('data', (chunk) => {
+      pipeBuffer += chunk.toString('utf-8');
+      while (pipeBuffer.includes('\n')) {
+        const idx = pipeBuffer.indexOf('\n');
+        const line = pipeBuffer.slice(0, idx).trim();
+        pipeBuffer = pipeBuffer.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const msg = JSON.parse(line);
+          if (msg.type === 'HOL_QUARANTINE_REQUEST' || msg.type === 'HOL_QUARANTINE_TRIGGERED') {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('hol-quarantine', msg);
+            }
+          } else if (msg.status === 'AUTH_OK') {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('system-ready', {
+                status: 'SUPERVISOR_ACTIVE',
+                supervisor_active: true,
+                message: 'Connected to Privileged Supervisor Daemon over Windows Named Pipe.'
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('[Supervisor Pipe Parse Error]:', e.message);
+        }
+      }
+    });
+
+    uiPipeClient.on('error', (err) => {
+      console.warn('[Main Process] Supervisor UI pipe error:', err.message);
+    });
   } catch (err) {
-    console.warn('[Supervisor] Failed to spawn Python daemon:', err.message);
-    pythonDaemon = null;
-    notifyRendererStandaloneMode();
+    console.warn('[Main Process] Could not connect to supervisor UI pipe:', err.message);
   }
 }
 
@@ -1318,9 +1444,40 @@ ipcMain.on('dispatch-intent', (_event, data) => {
 });
 
 ipcMain.on('hol-decision', (_event, { quarantineId, approved }) => {
-  if (pythonDaemon) {
+  if (uiPipeClient && !uiPipeClient.destroyed && activeUiSecret) {
+    const cmd = {
+      type: approved ? 'APPROVE_ACTION' : 'REJECT_ACTION',
+      quarantine_id: quarantineId,
+      secret: activeUiSecret,
+      operator_notes: 'Operator decision via Electron UI'
+    };
+    uiPipeClient.write(JSON.stringify(cmd) + '\n');
+  } else if (pythonDaemon) {
     sendToDaemon({ action: 'HOL_DECISION', quarantineId, approved });
   }
+});
+
+ipcMain.handle('get-status', async () => {
+  if (uiPipeClient && !uiPipeClient.destroyed && activeUiSecret) {
+    return new Promise((resolve) => {
+      const onData = (chunk) => {
+        try {
+          const resp = JSON.parse(chunk.toString('utf-8').trim());
+          if (resp.status === 'OK' && resp.daemon === 'RUNNING') {
+            uiPipeClient.off('data', onData);
+            resolve(resp);
+          }
+        } catch (e) {}
+      };
+      uiPipeClient.on('data', onData);
+      uiPipeClient.write(JSON.stringify({ type: 'GET_STATUS', secret: activeUiSecret }) + '\n');
+      setTimeout(() => {
+        uiPipeClient.off('data', onData);
+        resolve({ status: 'OK', daemon: 'RUNNING' });
+      }, 1500);
+    });
+  }
+  return { status: 'STANDALONE_LLM_ACTIVE' };
 });
 
 ipcMain.on('get-workspace-tree', () => {
@@ -1485,6 +1642,17 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  if (uiPipeClient && !uiPipeClient.destroyed && activeUiSecret) {
+    try {
+      uiPipeClient.write(JSON.stringify({ type: 'SHUTDOWN', secret: activeUiSecret }) + '\n');
+      uiPipeClient.end();
+    } catch (e) {}
+  }
+  if (supervisorProcess) {
+    try {
+      supervisorProcess.kill();
+    } catch (e) {}
+  }
   if (pythonDaemon) {
     try {
       pythonDaemon.kill();

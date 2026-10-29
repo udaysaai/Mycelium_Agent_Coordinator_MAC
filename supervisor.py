@@ -139,6 +139,9 @@ class SupervisorDaemon:
         self.worker_pipe_path = rf"\\.\pipe\mac_worker_{secrets.token_hex(16)}"
         self.ui_pipe_path = rf"\\.\pipe\mac_ui_{secrets.token_hex(16)}"
         self._pipe_handles: List[Any] = []
+        self._ui_pipe_handles: List[Any] = []
+        self._worker_pipe_handles: List[Any] = []
+        self._connected_ui_pipes: set[Any] = set()
         self._worker_pipe_thread: Optional[threading.Thread] = None
         self._ui_pipe_thread: Optional[threading.Thread] = None
 
@@ -500,6 +503,9 @@ class SupervisorDaemon:
                     except Exception:
                         pass
                 self._pipe_handles.clear()
+                self._ui_pipe_handles.clear()
+                self._worker_pipe_handles.clear()
+                self._connected_ui_pipes.clear()
 
         time.sleep(0.05)
         self.state_store.close()
@@ -639,12 +645,52 @@ class SupervisorDaemon:
                 expiresAt=self.clock() + 900.0
             )
             self.state_store.save_quarantine(quarantine, tool_name=tool_name, payload=payload)
+            try:
+                from approval_card import inspect_approval_payload
+                card = inspect_approval_payload(
+                    tool_name=tool_name,
+                    payload=payload,
+                    tier="T2",
+                    call_hash=verdict.callHash
+                )
+            except Exception:
+                card = {
+                    "tool_name": tool_name,
+                    "target": tool_name,
+                    "tier": "T2",
+                    "call_hash": verdict.callHash,
+                    "short_hash": verdict.callHash[:12] if len(verdict.callHash) >= 12 else verdict.callHash,
+                    "exact_command": str(payload.get("command", payload)),
+                    "payload": payload,
+                    "flags": {},
+                    "warning_messages": []
+                }
+
+            self._broadcast_ui_message({
+                "type": "HOL_QUARANTINE_REQUEST",
+                "quarantineId": quarantine.quarantineId,
+                "intent": req.intent,
+                "callHash": verdict.callHash,
+                "shortHash": card.get("short_hash", verdict.callHash[:12]),
+                "plainImpact": verdict.plainImpact,
+                "exactCommand": card.get("exact_command", ""),
+                "flags": card.get("flags", {}),
+                "warningMessages": card.get("warning_messages", []),
+                "expiresAt": quarantine.expiresAt,
+                "toolName": tool_name,
+                "payload": payload,
+                "privilegeTier": req.privilegeTier.value,
+                "safetyTier": req.safetyTier.value,
+                "tierLevel": "T2"
+            })
+
             return {
                 "status": "QUARANTINED",
                 "requires_quarantine": True,
                 "quarantine_id": quarantine.quarantineId,
                 "call_hash": verdict.callHash,
-                "plain_impact": verdict.plainImpact
+                "plain_impact": verdict.plainImpact,
+                "card": card
             }
 
         # Safe T0/T1 action: Execute immediately through coordinator
@@ -716,7 +762,8 @@ class SupervisorDaemon:
                 "status": "ERROR",
                 "success": False,
                 "exit_code": 403,
-                "error": "Security Violation: Invalid, expired, replayed, or argument-tampered token."
+                "error": "Security Violation: Invalid, expired, replayed, or argument-tampered token.",
+                "message": "Security Violation: Invalid, expired, replayed, or argument-tampered token."
             }
 
         # 3. Authorized execution: Run tool via local daemon in sandbox
@@ -781,6 +828,20 @@ class SupervisorDaemon:
                     self._active_connections.discard(conn)
                 self.state_store.close()
 
+    def _broadcast_ui_message(self, msg: Dict[str, Any]) -> None:
+        try:
+            import win32file
+            line = (json.dumps(msg) + "\n").encode("utf-8")
+            with self._conn_lock:
+                handles = list(self._connected_ui_pipes)
+            for h in handles:
+                try:
+                    win32file.WriteFile(h, line)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def _dispatch_ui_message(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         secret = msg.get("secret", "")
         if not secrets.compare_digest(secret, self.ui_secret):
@@ -788,8 +849,40 @@ class SupervisorDaemon:
 
         msg_type = str(msg.get("type", "")).upper()
 
+        if msg_type == "AUTH":
+            return {"status": "AUTH_OK", "message": "Authenticated successfully"}
+
+        if msg_type == "GET_STATUS":
+            pending = self.state_store.get_pending_quarantines()
+            return {
+                "status": "OK",
+                "daemon": "RUNNING",
+                "pending_quarantines": len(pending),
+                "integrity_level": "Medium",
+                "active_jobs": 1 if self.job_object_active else 0
+            }
+
+        if msg_type == "SHUTDOWN":
+            self._running = False
+            return {"status": "SHUTTING_DOWN"}
+
         if msg_type == "LIST_PENDING":
             pending = self.state_store.get_pending_quarantines()
+            try:
+                from approval_card import inspect_approval_payload
+                for p in pending:
+                    try:
+                        pl = json.loads(p.get("payload_json", "{}"))
+                    except Exception:
+                        pl = {}
+                    p["card"] = inspect_approval_payload(
+                        tool_name=p.get("tool_name", ""),
+                        payload=pl,
+                        tier="T2",
+                        call_hash=p.get("call_hash", "")
+                    )
+            except Exception:
+                pass
             return {"status": "OK", "pending": pending}
 
         if msg_type == "APPROVE_ACTION":
@@ -934,6 +1027,8 @@ class SupervisorDaemon:
         with self._conn_lock:
             self._pipe_handles.append(self._initial_worker_pipe)
             self._pipe_handles.append(self._initial_ui_pipe)
+            self._worker_pipe_handles.append(self._initial_worker_pipe)
+            self._ui_pipe_handles.append(self._initial_ui_pipe)
         self._worker_pipe_thread = threading.Thread(target=self._worker_pipe_loop, daemon=True)
         self._worker_pipe_thread.start()
         self._ui_pipe_thread = threading.Thread(target=self._ui_pipe_loop, daemon=True)
@@ -961,6 +1056,7 @@ class SupervisorDaemon:
                 )
                 with self._conn_lock:
                     self._pipe_handles.append(h_pipe)
+                    self._worker_pipe_handles.append(h_pipe)
             except Exception:
                 if not self._running:
                     break
@@ -999,7 +1095,8 @@ class SupervisorDaemon:
             with self._conn_lock:
                 if h_pipe in self._pipe_handles:
                     self._pipe_handles.remove(h_pipe)
-            self.state_store.close()
+                if h_pipe in self._worker_pipe_handles:
+                    self._worker_pipe_handles.remove(h_pipe)
 
     def _ui_pipe_loop(self):
         import win32pipe
@@ -1023,6 +1120,7 @@ class SupervisorDaemon:
                 )
                 with self._conn_lock:
                     self._pipe_handles.append(h_pipe)
+                    self._ui_pipe_handles.append(h_pipe)
             except Exception:
                 if not self._running:
                     break
@@ -1030,6 +1128,8 @@ class SupervisorDaemon:
 
     def _handle_ui_pipe_client(self, h_pipe):
         import win32file, win32pipe, win32api
+        with self._conn_lock:
+            self._connected_ui_pipes.add(h_pipe)
         try:
             buffer = ""
             while self._running:
@@ -1056,9 +1156,11 @@ class SupervisorDaemon:
             except Exception:
                 pass
             with self._conn_lock:
+                self._connected_ui_pipes.discard(h_pipe)
                 if h_pipe in self._pipe_handles:
                     self._pipe_handles.remove(h_pipe)
-            self.state_store.close()
+                if h_pipe in self._ui_pipe_handles:
+                    self._ui_pipe_handles.remove(h_pipe)
 
 
 if __name__ == "__main__":
@@ -1072,6 +1174,16 @@ if __name__ == "__main__":
     ws = Path(args.workspace).resolve()
     daemon = SupervisorDaemon(workspace_root=ws)
     daemon.start()
+
+    handshake_payload = {
+        "status": "READY",
+        "ui_pipe": daemon.ui_pipe_path,
+        "ui_secret": daemon.ui_secret,
+        "worker_pipe": daemon.worker_pipe_path,
+        "pid": os.getpid()
+    }
+    print(f"SUPERVISOR_HANDSHAKE:{json.dumps(handshake_payload)}", flush=True)
+    print(f"SUPERVISOR_READY:pipe={daemon.ui_pipe_path}:secret={daemon.ui_secret}", flush=True)
 
     if args.port_file:
         pf = Path(args.port_file).resolve()

@@ -329,8 +329,9 @@
           <div class="hol-field">
             <label>Target Command / Payload</label>
             <div class="hol-code-block">
-              <code id="modal-payload-code">--</code>
+              <code id="modal-payload-code" style="white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; display: block;">--</code>
             </div>
+            <div id="hol-anomaly-chips" class="hol-anomaly-chips" style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;"></div>
           </div>
 
           <div class="hol-meta-row">
@@ -343,8 +344,12 @@
               <span id="modal-privilege-tier" class="badge-privilege">PERSON</span>
             </div>
             <div class="meta-item">
-              <label>One-Shot Token</label>
-              <span id="modal-token" class="mono-qid" style="color: #00ff9d; font-size: 11px;">--</span>
+              <label>Call Hash</label>
+              <span id="modal-call-hash" class="mono-qid" style="color: #64b5f6; font-size: 11px;">--</span>
+            </div>
+            <div class="meta-item">
+              <label>Expires In</label>
+              <span id="modal-timer" class="mono-qid" style="color: #ffb84d; font-weight: bold; font-size: 11px;">15:00</span>
             </div>
             <div class="meta-item">
               <label>Quarantine ID</label>

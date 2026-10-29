@@ -2472,12 +2472,18 @@
     }
     el.modalSafetyTier.textContent = data.tierLevel ? `${data.tierLevel} (${data.safetyTier})` : data.safetyTier;
     el.modalPrivilegeTier.textContent = data.privilegeTier;
-    if (el.modalToken) {
-      el.modalToken.textContent = data.oneShotToken ? data.oneShotToken.substring(0, 12) + '...' : '--';
+
+    // Display Call Hash
+    const hashElem = document.getElementById('modal-call-hash');
+    if (hashElem) {
+      hashElem.textContent = (data.shortHash || data.callHash || '--').substring(0, 16);
     }
 
+    // Preserve exact un-truncated command text
     let payloadStr = '';
-    if (data.payload && data.payload.command) {
+    if (data.exactCommand) {
+      payloadStr = data.exactCommand;
+    } else if (data.payload && data.payload.command) {
       payloadStr = data.payload.command;
     } else {
       payloadStr = JSON.stringify(data.payload, null, 2);
@@ -2485,7 +2491,70 @@
 
     el.modalPayloadCode.textContent = payloadStr;
     el.modalQid.textContent = data.quarantineId.substring(0, 8);
+
+    // Anomaly Warning Chips
+    const chipsContainer = document.getElementById('hol-anomaly-chips');
+    if (chipsContainer) {
+      chipsContainer.innerHTML = '';
+      const warnings = Array.isArray(data.warningMessages) ? [...data.warningMessages] : [];
+      const flags = data.flags || {};
+      if (flags.has_newlines && !warnings.some((w) => w.includes('newline'))) {
+        warnings.push('WARNING: Command contains embedded newlines');
+      }
+      if (flags.has_control_chars && !warnings.some((w) => w.includes('control'))) {
+        warnings.push('WARNING: Command contains non-printable control characters');
+      }
+      if (flags.has_non_ascii_or_confusables && !warnings.some((w) => w.includes('Unicode') || w.includes('confusable'))) {
+        warnings.push('WARNING: Command contains mixed/suspicious Unicode or homoglyphs');
+      }
+      if (flags.is_very_long && !warnings.some((w) => w.includes('long') || w.includes('size'))) {
+        warnings.push('WARNING: Payload exceeds typical size');
+      }
+
+      warnings.forEach((msg) => {
+        const chip = document.createElement('div');
+        chip.style.cssText = 'background: rgba(255, 68, 68, 0.12); border-left: 3px solid #ff4444; color: #ff8888; font-size: 11px; padding: 4px 8px; border-radius: 4px; font-weight: 500;';
+        chip.textContent = msg;
+        chipsContainer.appendChild(chip);
+      });
+    }
+
+    // Modal Expiry Countdown Timer
+    const timerElem = document.getElementById('modal-timer');
+    if (timerElem) {
+      if (window._holCountdownInterval) {
+        clearInterval(window._holCountdownInterval);
+      }
+      const targetTime = data.expiresAt ? (data.expiresAt * 1000) : (Date.now() + 15 * 60 * 1000);
+      function updateTimer() {
+        const remaining = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
+        const mins = Math.floor(remaining / 60);
+        const secs = remaining % 60;
+        timerElem.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        if (remaining <= 0) {
+          timerElem.textContent = 'EXPIRED';
+          if (el.holApproveBtn) el.holApproveBtn.disabled = true;
+          clearInterval(window._holCountdownInterval);
+        }
+      }
+      updateTimer();
+      window._holCountdownInterval = setInterval(updateTimer, 1000);
+    }
+
+    // Disable Approve button until card is fully rendered
+    if (el.holApproveBtn) {
+      el.holApproveBtn.disabled = true;
+      setTimeout(() => {
+        if (el.holApproveBtn) el.holApproveBtn.disabled = false;
+      }, 250);
+    }
+
     el.holModalBackdrop.classList.remove('hidden');
+
+    // Default keyboard focus on Reject button
+    if (el.holRejectBtn) {
+      setTimeout(() => el.holRejectBtn.focus(), 60);
+    }
 
     showDesktopNotification(
       'HOL Guard Quarantine Alert',
@@ -2495,6 +2564,10 @@
   }
 
   function hideHolModal() {
+    if (window._holCountdownInterval) {
+      clearInterval(window._holCountdownInterval);
+      window._holCountdownInterval = null;
+    }
     el.holModalBackdrop.classList.add('hidden');
     state.currentQuarantineId = null;
   }
