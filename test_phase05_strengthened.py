@@ -278,3 +278,141 @@ def test_strengthened_a2_directory_junction_breakout():
             assert not (outside_target / "pwned.txt").exists(), "Security Violation: File was written through junction to outside directory!"
         finally:
             coord.state_store.close()
+
+
+# ============================================================================
+# A4. StateStore Token Expiry & Non-Approved Lifecycle Enforcement
+# ============================================================================
+
+def test_strengthened_a4_validate_token_rejects_expired():
+    """
+    Directly verify that StateStore rejects both approval decisions and token validation
+    for expired items:
+      1. update_quarantine_decision on expired pending action must return False.
+      2. validate_one_shot_token on expired approved action must return False.
+    """
+    with tempfile.TemporaryDirectory(prefix="mac_exp_test_") as tmp_dir:
+        db_path = Path(tmp_dir) / "state.db"
+        store = StateStore(db_path=db_path)
+        try:
+            curr_time = 50000.0
+            store.clock = lambda: curr_time
+
+            # Test 1: update_quarantine_decision rejected if expired
+            q_pending = HOLQuarantineEvent(
+                quarantineId="qid-expired-pending",
+                request=ActionRequest(
+                    intent="expired pending action",
+                    privilegeTier=PrivilegeTier.PERSON,
+                    safetyTier=SafetyTier.MUTATING,
+                    payload={"tool_name": "execute_shell_command", "command": "echo test"}
+                ),
+                quarantineReason="Needs approval",
+                decision=HOLApprovalStatus.PENDING,
+                callHash="hash-pending",
+                oneShotToken="token-pending",
+                plainImpact="Impact test",
+                quarantinedAt=curr_time - 1000.0,
+                expiresAt=curr_time - 10.0  # Expired
+            )
+            store.save_quarantine(q_pending)
+
+            approved = store.update_quarantine_decision("qid-expired-pending", HOLApprovalStatus.APPROVED)
+            assert approved is False, "update_quarantine_decision must return False for expired action"
+            stored_p = store.get_quarantine("qid-expired-pending")
+            assert stored_p is not None
+            assert stored_p["status"] == HOLApprovalStatus.REJECTED_TIMEOUT.value
+
+            # Test 2: validate_one_shot_token rejected if expired
+            q_event = HOLQuarantineEvent(
+                quarantineId="qid-expired-direct",
+                request=ActionRequest(
+                    intent="expired action test",
+                    privilegeTier=PrivilegeTier.PERSON,
+                    safetyTier=SafetyTier.MUTATING,
+                    payload={"tool_name": "execute_shell_command", "command": "echo test"}
+                ),
+                quarantineReason="Needs approval",
+                decision=HOLApprovalStatus.APPROVED,
+                callHash="hash-123",
+                oneShotToken="valid-token-123",
+                plainImpact="Impact test",
+                quarantinedAt=curr_time - 1000.0,
+                expiresAt=curr_time - 10.0  # Already expired relative to curr_time
+            )
+            store.save_quarantine(q_event)
+
+            # Direct validation MUST return False due to expiration
+            is_valid = store.validate_one_shot_token("qid-expired-direct", "valid-token-123")
+            assert is_valid is False, "validate_one_shot_token must reject expired token"
+
+            # DB status must have transitioned to REJECTED_TIMEOUT
+            stored = store.get_quarantine("qid-expired-direct")
+            assert stored is not None
+            assert stored["status"] == HOLApprovalStatus.REJECTED_TIMEOUT.value
+        finally:
+            store.close()
+
+
+def test_strengthened_a4_validate_token_rejects_non_approved_status():
+    """
+    Directly verify that StateStore.validate_one_shot_token rejects any quarantine
+    that is not strictly in APPROVED status (e.g. PENDING, REJECTED_MANUAL, or CONSUMED replay).
+    """
+    with tempfile.TemporaryDirectory(prefix="mac_status_test_") as tmp_dir:
+        db_path = Path(tmp_dir) / "state.db"
+        store = StateStore(db_path=db_path)
+        try:
+            curr_time = 50000.0
+            store.clock = lambda: curr_time
+
+            # Case A: PENDING status (not yet approved)
+            q_pending = HOLQuarantineEvent(
+                quarantineId="qid-pending-status",
+                request=ActionRequest(
+                    intent="pending action test",
+                    privilegeTier=PrivilegeTier.PERSON,
+                    safetyTier=SafetyTier.MUTATING,
+                    payload={"tool_name": "execute_shell_command", "command": "echo test"}
+                ),
+                quarantineReason="Needs approval",
+                decision=HOLApprovalStatus.PENDING,
+                callHash="hash-pending",
+                oneShotToken="pending-token-123",
+                plainImpact="Impact test",
+                quarantinedAt=curr_time,
+                expiresAt=curr_time + 900.0
+            )
+            store.save_quarantine(q_pending)
+            assert store.validate_one_shot_token("qid-pending-status", "pending-token-123") is False
+
+            # Case B: REJECTED status
+            q_rejected = HOLQuarantineEvent(
+                quarantineId="qid-rejected-status",
+                request=ActionRequest(
+                    intent="rejected action test",
+                    privilegeTier=PrivilegeTier.PERSON,
+                    safetyTier=SafetyTier.MUTATING,
+                    payload={"tool_name": "execute_shell_command", "command": "echo test"}
+                ),
+                quarantineReason="Denied",
+                decision=HOLApprovalStatus.REJECTED,
+                callHash="hash-rejected",
+                oneShotToken="rejected-token-123",
+                plainImpact="Impact test",
+                quarantinedAt=curr_time,
+                expiresAt=curr_time + 900.0
+            )
+            store.save_quarantine(q_rejected)
+            assert store.validate_one_shot_token("qid-rejected-status", "rejected-token-123") is False
+
+            # Case C: CONSUMED status token replay with 'CONSUMED' literal token
+            with store._get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO quarantines (quarantine_id, request_id, contract_id, tool_name, call_hash, one_shot_token, plain_impact, payload_json, status, expires_at, quarantined_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    ("qid-consumed", "req-1", "cont-1", "tool", "hash-c", "CONSUMED", "impact", "{}", "CONSUMED", curr_time + 900.0, curr_time)
+                )
+            assert store.validate_one_shot_token("qid-consumed", "CONSUMED") is False
+        finally:
+            store.close()
+
