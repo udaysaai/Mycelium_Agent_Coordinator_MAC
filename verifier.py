@@ -22,8 +22,13 @@ class DeterministicVerifier:
     """
     Independent verifier engine that enforces the core rule:
     'Never let an agent grade its own homework.'
-    Runs deterministic read-back assertions and generates cryptographic receipts.
+    Runs deterministic read-back assertions and generates SHA-256 verification receipts.
     """
+
+    BINARY_EXTENSIONS = {
+        ".bin", ".exe", ".png", ".jpg", ".jpeg", ".zip", ".tar",
+        ".gz", ".pdf", ".dat", ".ico", ".dll", ".so", ".wasm"
+    }
 
     def __init__(self, workspace_root: Path, state_store: Optional[StateStore] = None):
         self.workspace_root = Path(workspace_root).resolve()
@@ -54,7 +59,8 @@ class DeterministicVerifier:
         raw_output: Any,
         request_id: str,
         contract: Optional[TaskContract] = None,
-        persist: bool = True
+        persist: bool = True,
+        is_binary: bool = False
     ) -> VerificationReceipt:
         """
         Execute out-of-band state verification for a completed tool action.
@@ -62,7 +68,6 @@ class DeterministicVerifier:
         timestamp = time.time()
         contract_id = contract.contractId if contract else None
         predicate = (contract.successPredicate if contract else {}) or {}
-        pred_type = predicate.get("type", "auto_read_back")
 
         # -------------------------------------------------------------------
         # 1. File write tools (write_workspace_file, sandboxed_file_writer)
@@ -94,7 +99,7 @@ class DeterministicVerifier:
                     timestamp=timestamp,
                     verifierNotes=f"FAIL: Physical file '{target_path_str}' does not exist on disk after write."
                 )
-                if self.state_store:
+                if self.state_store and persist:
                     self.state_store.save_receipt(receipt)
                 return receipt
 
@@ -112,26 +117,38 @@ class DeterministicVerifier:
                     timestamp=timestamp,
                     verifierNotes=f"FAIL: Target file '{target_path_str}' size ({actual_size}B) < required {min_bytes}B."
                 )
-                if self.state_store:
+                if self.state_store and persist:
                     self.state_store.save_receipt(receipt)
                 return receipt
 
-            # Check 3: Read-back hash verification with platform newline normalization
-            try:
-                with open(target_file, "r", encoding="utf-8", errors="replace") as f:
-                    disk_text = f.read()
-                norm_actual_hash = hashlib.sha256(disk_text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
-                norm_expected = (expected_content if isinstance(expected_content, str) else str(expected_content)).replace("\r\n", "\n")
-                norm_expected_hash = hashlib.sha256(norm_expected.encode("utf-8")).hexdigest()
-                verified = (norm_actual_hash == norm_expected_hash)
-                actual_hash = norm_actual_hash
-                expected_hash = norm_expected_hash
-            except Exception:
+            # Check 3: Read-back hash verification
+            expected_bytes = (
+                expected_content.encode("utf-8")
+                if isinstance(expected_content, str)
+                else (expected_content if isinstance(expected_content, bytes) else str(expected_content).encode("utf-8"))
+            )
+
+            is_bin = is_binary or target_file.suffix.lower() in self.BINARY_EXTENSIONS
+
+            if is_bin:
+                # Raw binary mode: No newline normalization allowed
                 actual_hash = self.compute_file_sha256(target_file)
-                expected_hash = hashlib.sha256(
-                    expected_content.encode("utf-8") if isinstance(expected_content, str) else str(expected_content).encode("utf-8")
-                ).hexdigest()
+                expected_hash = hashlib.sha256(expected_bytes).hexdigest()
                 verified = (actual_hash == expected_hash)
+            else:
+                # Text mode: Normalize CRLF to LF to prevent OS newline mismatch
+                try:
+                    with open(target_file, "r", encoding="utf-8", errors="replace") as f:
+                        disk_text = f.read()
+                    actual_hash = hashlib.sha256(disk_text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+                    norm_expected = (expected_content if isinstance(expected_content, str) else str(expected_content)).replace("\r\n", "\n")
+                    expected_hash = hashlib.sha256(norm_expected.encode("utf-8")).hexdigest()
+                    verified = (actual_hash == expected_hash)
+                except Exception:
+                    actual_hash = self.compute_file_sha256(target_file)
+                    expected_hash = hashlib.sha256(expected_bytes).hexdigest()
+                    verified = (actual_hash == expected_hash)
+
             notes = (
                 f"PASS: Read-back verified on disk. Size: {actual_size}B, SHA-256: {actual_hash[:12]}..."
                 if verified
@@ -149,12 +166,13 @@ class DeterministicVerifier:
                     "exists": True,
                     "sizeBytes": actual_size,
                     "path": str(target_file),
-                    "hashMatched": verified
+                    "hashMatched": verified,
+                    "isBinary": is_bin
                 },
                 timestamp=timestamp,
                 verifierNotes=notes
             )
-            if self.state_store:
+            if self.state_store and persist:
                 self.state_store.save_receipt(receipt)
             return receipt
 
@@ -162,7 +180,6 @@ class DeterministicVerifier:
         # 2. Shell execution (execute_shell_command)
         # -------------------------------------------------------------------
         if tool_name == "execute_shell_command":
-            # If tool returned ExecutionResult or exit code
             exit_code = 0
             if hasattr(raw_output, "exitCode"):
                 exit_code = raw_output.exitCode
@@ -181,7 +198,7 @@ class DeterministicVerifier:
                 timestamp=timestamp,
                 verifierNotes=f"Process exited with status code {exit_code} (Verified: {verified})."
             )
-            if self.state_store:
+            if self.state_store and persist:
                 self.state_store.save_receipt(receipt)
             return receipt
 
