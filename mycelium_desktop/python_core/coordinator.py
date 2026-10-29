@@ -2,7 +2,7 @@
 US Neural - Mycelium Semantic Protocol & HOL Guard
 Module: coordinator.py
 Description: Central Intelligence Traffic Manager & HOL (Human-On-The-Loop) Safety Gate.
-             Integrates Conversational Intake Gate, Dynamic Tiered Policy (T0/T1/T2),
+             Integrates Conversational Intake Gate, Dynamic Capability Grants (T0/T1/T2),
              Durable SQLite WAL State Storage, and Deterministic Out-of-Band Verifiers.
 """
 
@@ -14,7 +14,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from protocol import (
     ActionRequest,
@@ -29,7 +29,7 @@ from protocol import (
     ToolMatchResult,
     VerificationReceipt,
 )
-from local_daemon import LocalExecDaemon
+from local_daemon import LocalExecDaemon, WorkspaceSecurityError
 from mcp_gateway import (
     ExecuteShellCommandParams,
     ListDirectoryParams,
@@ -56,7 +56,8 @@ class MyceliumCoordinator:
         local_daemon: Optional[LocalExecDaemon] = None,
         mcp_gateway: Optional[MCPGateway] = None,
         human_confirmation_hook: Optional[Callable[[HOLQuarantineEvent], bool]] = None,
-        state_store: Optional[StateStore] = None
+        state_store: Optional[StateStore] = None,
+        key_file_path: Optional[str | Path] = None
     ):
         """
         Initialize the Mycelium Coordinator.
@@ -65,6 +66,7 @@ class MyceliumCoordinator:
         :param mcp_gateway: Gateway managing tool contracts and semantic vector mesh.
         :param human_confirmation_hook: Callback invoked when an action is quarantined.
         :param state_store: Durable SQLite persistence for contracts, quarantines, and receipts.
+        :param key_file_path: External path for HMAC signing key.
         """
         self.daemon = local_daemon or LocalExecDaemon()
         self.gateway = mcp_gateway or MCPGateway()
@@ -74,7 +76,10 @@ class MyceliumCoordinator:
         self.state_store = state_store or StateStore(
             db_path=self.daemon.workspace_root / "data" / "mac_state.db"
         )
-        self.policy_engine = PolicyEngine(sandbox_dirname="workspace_sandbox")
+        self.policy_engine = PolicyEngine(
+            sandbox_dirname="workspace_sandbox",
+            key_file_path=key_file_path
+        )
         self.verifier = DeterministicVerifier(
             workspace_root=self.daemon.workspace_root,
             state_store=self.state_store
@@ -114,20 +119,38 @@ class MyceliumCoordinator:
         def _sandboxed_atomic_writer(file_path: str, content: str) -> Dict[str, Any]:
             sandbox_dir = (self.daemon.workspace_root / "workspace_sandbox").resolve()
             sandbox_dir.mkdir(parents=True, exist_ok=True)
-            clean_rel = file_path.replace("\\", "/").lstrip("/")
+
+            clean_str = str(file_path).strip()
+            # Reject UNC network paths, Windows drive letters, and absolute paths
+            if (
+                clean_str.startswith(("//", "\\\\"))
+                or (len(clean_str) >= 2 and clean_str[1] == ":")
+                or os.path.isabs(clean_str)
+            ):
+                raise PermissionError(f"Absolute, UNC, or drive-letter paths forbidden in sandbox: '{file_path}'")
+
+            # Reject path traversal walking up
+            norm_parts = clean_str.replace("\\", "/").split("/")
+            if ".." in norm_parts:
+                raise PermissionError(f"Path traversal sequence '..' forbidden in sandbox: '{file_path}'")
+
+            clean_rel = clean_str.replace("\\", "/").lstrip("/")
             if clean_rel.startswith("workspace_sandbox/"):
                 clean_rel = clean_rel[len("workspace_sandbox/"):]
+
             target = (sandbox_dir / clean_rel).resolve()
-            # Enforce strict sandbox confinement
+            # Enforce strict sandbox confinement and symlink / junction breakout check
+            real_target = target.resolve()
+            real_sandbox = sandbox_dir.resolve()
             try:
-                target.relative_to(sandbox_dir)
+                real_target.relative_to(real_sandbox)
             except ValueError as exc:
                 raise PermissionError(f"Sandboxed file writer violated sandbox boundary: '{file_path}'") from exc
 
             target.parent.mkdir(parents=True, exist_ok=True)
             # Atomic write pattern with flush and fsync
             tmp_target = target.with_suffix(f"{target.suffix}.tmp.{uuid.uuid4().hex[:6]}")
-            with open(tmp_target, "w", encoding="utf-8") as f:
+            with open(tmp_target, "w", encoding="utf-8", newline="") as f:
                 f.write(content)
                 f.flush()
                 os.fsync(f.fileno())
@@ -253,7 +276,6 @@ class MyceliumCoordinator:
         )
 
         if intake_outcome.isConversational:
-            # Clean conversational exit; zero tool execution, zero 404 false alarms
             latency_ms = round((time.perf_counter() - dispatch_start) * 1000.0, 3)
             return ExecutionResult(
                 requestId=request.requestId,
@@ -267,7 +289,6 @@ class MyceliumCoordinator:
             )
 
         if not intake_outcome.isReadyForExecution and intake_outcome.missingSlots:
-            # Slot-filling prompt
             latency_ms = round((time.perf_counter() - dispatch_start) * 1000.0, 3)
             return ExecutionResult(
                 requestId=request.requestId,
@@ -298,7 +319,13 @@ class MyceliumCoordinator:
             tool_name = "execute_shell_command"
 
         # T0 Fast-Path for idempotent READ_ONLY inspection requests
-        if request.safetyTier == SafetyTier.READ_ONLY and not request.payload.get("command"):
+        is_read_tool = False
+        if tool_name in ("system_diagnostics", "read_workspace_file", "list_workspace_directory"):
+            is_read_tool = True
+        elif best_tool_match and getattr(best_tool_match.tool, "safetyTier", None) == SafetyTier.READ_ONLY:
+            is_read_tool = True
+
+        if request.safetyTier == SafetyTier.READ_ONLY and is_read_tool and not request.payload.get("command"):
             raw_output, exit_code, stdout, stderr = self._run_actuator(request, tool_name, best_tool_match)
             effective_tool = tool_name or (best_tool_match.tool.name if best_tool_match else "action")
             receipt = self.verifier.verify_action(
@@ -306,13 +333,13 @@ class MyceliumCoordinator:
                 payload=request.payload,
                 raw_output=raw_output,
                 request_id=request.requestId,
-                contract=None,
+                contract=contract,
                 persist=False
             )
             total_latency_ms = round((time.perf_counter() - dispatch_start) * 1000.0, 3)
             result = ExecutionResult(
                 requestId=request.requestId,
-                contractId=None,
+                contractId=request.contractId,
                 success=(exit_code == 0),
                 stdout=stdout or (str(raw_output) if raw_output is not None else ""),
                 stderr=stderr,
@@ -325,7 +352,7 @@ class MyceliumCoordinator:
             return result
 
         # -------------------------------------------------------------------
-        # Step 3: Plane 3 - Policy Engine & Tiered Safety Boundaries (T0/T1/T2)
+        # Step 3: Plane 3 - Capability Grant Policy Engine (T0/T1/T2)
         # -------------------------------------------------------------------
         verdict: PolicyVerdict = self.policy_engine.evaluate(
             request=request,
@@ -335,24 +362,53 @@ class MyceliumCoordinator:
 
         # If T2 action requires quarantine
         if verdict.requiresQuarantine:
-            # Check if this request already carries a valid signed one-shot token
             has_valid_token = False
             if request.oneShotToken:
-                # Direct token bypass attempt check against durable store
-                # Note: Token must match a previously approved quarantine ID
+                # Execution-time argument tampering & token authenticity check
+                actual_target = request.payload.get("command", request.payload.get("file_path", ""))
+                current_call_hash = self.policy_engine.compute_call_hash(
+                    tool_name=tool_name or "action",
+                    payload=request.payload,
+                    target=str(actual_target)
+                )
                 quarantine_id = request.payload.get("quarantineId", "")
-                has_valid_token = self.state_store.validate_one_shot_token(quarantine_id, request.oneShotToken)
+                has_valid_token = self.state_store.validate_one_shot_token(
+                    quarantine_id=quarantine_id,
+                    token=request.oneShotToken,
+                    policy_engine=self.policy_engine,
+                    current_call_hash=current_call_hash
+                )
+                if not has_valid_token:
+                    latency_ms = round((time.perf_counter() - dispatch_start) * 1000.0, 3)
+                    rejected_result = ExecutionResult(
+                        requestId=request.requestId,
+                        contractId=request.contractId,
+                        success=False,
+                        stdout="",
+                        stderr="Security Violation: Invalid, expired, replayed, or argument-tampered authorization token.",
+                        exitCode=403,
+                        latencyMs=latency_ms,
+                        tierLevel=verdict.tierLevel
+                    )
+                    self.execution_audit.append(rejected_result)
+                    return rejected_result
+            else:
+                # No token provided: Trigger quarantine and await human authorization
+                quarantine_id = str(uuid.uuid4())
+                token = self.policy_engine.generate_hmac_token(
+                    quarantine_id,
+                    verdict.callHash,
+                    verdict.expiresAt
+                )
 
-            if not has_valid_token:
-                # Trigger Quarantine Event
                 quarantine_event = HOLQuarantineEvent(
-                    quarantineId=str(uuid.uuid4()),
+                    quarantineId=quarantine_id,
                     contractId=request.contractId,
                     request=request,
                     quarantineReason=verdict.reason,
                     decision=HOLApprovalStatus.PENDING,
                     callHash=verdict.callHash,
-                    oneShotToken=verdict.oneShotToken,
+                    oneShotToken=token,
                     plainImpact=verdict.plainImpact,
                     expiresAt=verdict.expiresAt
                 )
@@ -367,7 +423,7 @@ class MyceliumCoordinator:
                 if contract:
                     self.state_store.update_contract_status(contract.contractId, TaskContractStatus.QUARANTINED)
 
-                # Invoke Human-On-The-Loop Confirmation Hook
+                # Invoke Human-On-The-Loop Confirmation Hook (Isolated Supervisor Channel)
                 approved = self.human_confirmation_hook(quarantine_event)
                 quarantine_event.reviewedAt = time.time()
 
@@ -399,7 +455,7 @@ class MyceliumCoordinator:
                     self.execution_audit.append(rejected_result)
                     return rejected_result
 
-                # Approved by operator: Mark approved and assign one-shot token
+                # Approved by operator: Mark approved and assign HMAC token
                 quarantine_event.decision = HOLApprovalStatus.APPROVED
                 self.quarantine_history.append(quarantine_event)
                 self.state_store.update_quarantine_decision(
@@ -407,9 +463,19 @@ class MyceliumCoordinator:
                     HOLApprovalStatus.APPROVED,
                     notes="Authorized by human operator."
                 )
-                request.oneShotToken = verdict.oneShotToken
-                # Consume one-shot token to guarantee zero replay attack vectors
-                self.state_store.validate_one_shot_token(quarantine_event.quarantineId, verdict.oneShotToken)
+                with self.state_store._get_connection() as conn:
+                    conn.execute(
+                        "UPDATE quarantines SET one_shot_token = ? WHERE quarantine_id = ?",
+                        (token, quarantine_event.quarantineId)
+                    )
+                request.oneShotToken = token
+                # Immediately consume one-shot token for this execution run
+                self.state_store.validate_one_shot_token(
+                    quarantine_event.quarantineId,
+                    token,
+                    policy_engine=self.policy_engine,
+                    current_call_hash=verdict.callHash
+                )
 
         # -------------------------------------------------------------------
         # Step 4: Execution Actuators

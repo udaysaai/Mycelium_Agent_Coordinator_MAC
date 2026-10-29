@@ -3,15 +3,18 @@ US Neural - Mycelium Semantic Protocol & HOL Guard
 Module: state_store.py
 Description: Durable SQLite WAL State Store for TaskContracts, HOL Quarantines,
              and Deterministic Out-of-Band Verification Receipts.
+             Features thread-local connection caching, injectable clock for timeout
+             audits, and strict one-shot token validation with call-hash and HMAC verification.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from protocol import (
     HOLApprovalStatus,
@@ -30,7 +33,11 @@ class StateStore:
     survive crashes, reboots, and multi-process access.
     """
 
-    def __init__(self, db_path: Optional[str | Path] = None):
+    def __init__(
+        self,
+        db_path: Optional[str | Path] = None,
+        clock: Optional[Callable[[], float]] = None
+    ):
         if db_path is None:
             base_dir = Path(__file__).resolve().parent
             data_dir = base_dir / "data"
@@ -40,15 +47,30 @@ class StateStore:
             self.db_path = Path(db_path).resolve()
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        self.clock: Callable[[], float] = clock or time.time
+        self._local = threading.local()
         self._init_database()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=10.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
-        conn.execute("PRAGMA busy_timeout = 5000;")
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(str(self.db_path), timeout=10.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            conn.execute("PRAGMA busy_timeout = 5000;")
+            self._local.conn = conn
         return conn
+
+    def close(self) -> None:
+        """Close thread-local SQLite connection to release file locks."""
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
 
     def _init_database(self) -> None:
         """Create schemas if not already present."""
@@ -155,12 +177,13 @@ class StateStore:
         completed_at: Optional[float] = None
     ) -> None:
         """Update contract lifecycle state."""
+        now = self.clock()
         with self._get_connection() as conn:
             conn.execute(
                 "UPDATE contracts SET status = ?, completed_at = ? WHERE contract_id = ?",
                 (
                     status.value if hasattr(status, "value") else str(status),
-                    completed_at if completed_at is not None else (time.time() if status in (TaskContractStatus.COMPLETED, TaskContractStatus.FAILED, TaskContractStatus.ABORTED) else None),
+                    completed_at if completed_at is not None else (now if status in (TaskContractStatus.COMPLETED, TaskContractStatus.FAILED, TaskContractStatus.ABORTED) else None),
                     contract_id
                 )
             )
@@ -206,18 +229,31 @@ class StateStore:
             ))
 
     def get_quarantine(self, quarantine_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve stored quarantine record."""
+        """Retrieve stored quarantine record, auto-resolving expired pending items."""
+        now = self.clock()
         with self._get_connection() as conn:
             cur = conn.execute("SELECT * FROM quarantines WHERE quarantine_id = ?", (quarantine_id,))
             row = cur.fetchone()
             if not row:
                 return None
-            return dict(row)
+            record = dict(row)
+            if record["status"] == HOLApprovalStatus.PENDING.value and record["expires_at"] <= now:
+                conn.execute(
+                    "UPDATE quarantines SET status = ? WHERE quarantine_id = ?",
+                    (HOLApprovalStatus.REJECTED_TIMEOUT.value, quarantine_id)
+                )
+                record["status"] = HOLApprovalStatus.REJECTED_TIMEOUT.value
+            return record
 
     def get_pending_quarantines(self) -> List[Dict[str, Any]]:
         """List all pending quarantines that have not expired."""
-        now = time.time()
+        now = self.clock()
         with self._get_connection() as conn:
+            # Auto-expire any pending quarantines past expiry to REJECTED_TIMEOUT
+            conn.execute(
+                "UPDATE quarantines SET status = ? WHERE status = ? AND expires_at <= ?",
+                (HOLApprovalStatus.REJECTED_TIMEOUT.value, HOLApprovalStatus.PENDING.value, now)
+            )
             cur = conn.execute(
                 "SELECT * FROM quarantines WHERE status = ? AND expires_at > ? ORDER BY quarantined_at ASC",
                 (HOLApprovalStatus.PENDING.value, now)
@@ -231,51 +267,91 @@ class StateStore:
         operator_id: Optional[str] = None,
         notes: Optional[str] = None
     ) -> bool:
-        """Resolve a quarantine entry (Approve/Reject)."""
-        now = time.time()
+        """Resolve a quarantine entry (Approve/Reject). Default-deny if expired."""
+        now = self.clock()
         with self._get_connection() as conn:
-            cur = conn.execute("""
+            cur = conn.execute("SELECT status, expires_at FROM quarantines WHERE quarantine_id = ?", (quarantine_id,))
+            row = cur.fetchone()
+            if not row:
+                return False
+            if row["status"] != HOLApprovalStatus.PENDING.value:
+                return False
+
+            # Check timeout expiration
+            if row["expires_at"] <= now:
+                conn.execute(
+                    "UPDATE quarantines SET status = ?, reviewed_at = ?, operator_notes = 'Expired before review' WHERE quarantine_id = ?",
+                    (HOLApprovalStatus.REJECTED_TIMEOUT.value, now, quarantine_id)
+                )
+                return False
+
+            conn.execute("""
                 UPDATE quarantines
                 SET status = ?, reviewed_at = ?, operator_id = ?, operator_notes = ?
-                WHERE quarantine_id = ? AND status = ?
+                WHERE quarantine_id = ?
             """, (
                 decision.value if hasattr(decision, "value") else str(decision),
                 now,
                 operator_id or "human_operator",
                 notes or "",
-                quarantine_id,
-                HOLApprovalStatus.PENDING.value
+                quarantine_id
             ))
-            return cur.rowcount > 0
+            return True
 
-    def validate_one_shot_token(self, quarantine_id: str, token: str) -> bool:
+    def validate_one_shot_token(
+        self,
+        quarantine_id: str,
+        token: str,
+        policy_engine: Optional[Any] = None,
+        current_call_hash: Optional[str] = None
+    ) -> bool:
         """
         Validate whether token matches an approved quarantine entry.
         Tokens are one-shot; consuming this validation invalidates future replay.
+        Verifies call hash, expiry, and HMAC authenticity.
         """
-        if not token:
+        if not token or token == "CONSUMED":
             return False
+        now = self.clock()
         with self._get_connection() as conn:
             cur = conn.execute(
-                "SELECT status, one_shot_token, expires_at FROM quarantines WHERE quarantine_id = ?",
+                "SELECT status, one_shot_token, call_hash, expires_at FROM quarantines WHERE quarantine_id = ?",
                 (quarantine_id,)
             )
             row = cur.fetchone()
             if not row:
                 return False
-            # Check match and approval
-            if (
-                row["status"] == HOLApprovalStatus.APPROVED.value
-                and row["one_shot_token"] == token
-                and row["expires_at"] > time.time()
-            ):
-                # Invalidate token to enforce one-shot execution
+
+            # Check expiration
+            if row["expires_at"] <= now:
                 conn.execute(
-                    "UPDATE quarantines SET one_shot_token = 'CONSUMED' WHERE quarantine_id = ?",
-                    (quarantine_id,)
+                    "UPDATE quarantines SET status = ? WHERE quarantine_id = ?",
+                    (HOLApprovalStatus.REJECTED_TIMEOUT.value, quarantine_id)
                 )
-                return True
-            return False
+                return False
+
+            # Check status and token match
+            if row["status"] != HOLApprovalStatus.APPROVED.value:
+                return False
+
+            if row["one_shot_token"] != token:
+                return False
+
+            # Execution-time argument tampering check: call hash must match
+            if current_call_hash and current_call_hash != row["call_hash"]:
+                return False
+
+            # HMAC authenticity check
+            if policy_engine and hasattr(policy_engine, "verify_hmac_token"):
+                if not policy_engine.verify_hmac_token(token, quarantine_id, row["call_hash"], row["expires_at"]):
+                    return False
+
+            # Invalidate token to enforce one-shot execution
+            conn.execute(
+                "UPDATE quarantines SET one_shot_token = 'CONSUMED' WHERE quarantine_id = ?",
+                (quarantine_id,)
+            )
+            return True
 
     # -----------------------------------------------------------------------
     # Deterministic Verification Proof Receipts

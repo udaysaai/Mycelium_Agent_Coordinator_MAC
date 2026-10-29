@@ -19,6 +19,11 @@ __pycache__/
 .env
 .env.*
 !.env.example
+*.key
+keys/
+data/*.db
+data/*.db-wal
+data/*.db-shm
 
 # Operating System Files
 .DS_Store
