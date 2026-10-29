@@ -76,7 +76,8 @@ class SupervisorDaemon:
     def __init__(
         self,
         workspace_root: Optional[Path] = None,
-        clock: Optional[Callable[[], float]] = None
+        clock: Optional[Callable[[], float]] = None,
+        use_named_pipes: bool = True
     ):
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
         self.clock = clock or time.time
@@ -122,6 +123,14 @@ class SupervisorDaemon:
         self._running = False
         self._worker_thread: Optional[threading.Thread] = None
         self._ui_thread: Optional[threading.Thread] = None
+
+        # Named Pipe attributes with random per-session names
+        self.use_named_pipes = use_named_pipes
+        self.worker_pipe_path = rf"\\.\pipe\mac_worker_{secrets.token_hex(16)}"
+        self.ui_pipe_path = rf"\\.\pipe\mac_ui_{secrets.token_hex(16)}"
+        self._pipe_handles: List[Any] = []
+        self._worker_pipe_thread: Optional[threading.Thread] = None
+        self._ui_pipe_thread: Optional[threading.Thread] = None
 
         # 4. Windows Job Object Management
         self.job_object_handle = None
@@ -221,6 +230,11 @@ class SupervisorDaemon:
         self._ui_thread = threading.Thread(target=self._ui_accept_loop, daemon=True)
         self._ui_thread.start()
 
+        # 4. Start Named Pipe Servers on Windows
+        if self.use_named_pipes and sys.platform == "win32":
+            self._start_named_pipes()
+            logger.info(f"Named Pipes active. Worker: {self.worker_pipe_path}, UI: {self.ui_pipe_path}")
+
         logger.info(f"Supervisor started. Worker Port: {self.worker_port}, UI Port: {self.ui_port}")
 
     def stop(self) -> None:
@@ -254,6 +268,19 @@ class SupervisorDaemon:
             except Exception:
                 pass
             self.job_object_handle = None
+
+        # Close named pipe handles
+        if self.use_named_pipes and sys.platform == "win32":
+            self._unblock_pipes()
+            with self._conn_lock:
+                for h in list(self._pipe_handles):
+                    try:
+                        import win32pipe, win32api
+                        win32pipe.DisconnectNamedPipe(h)
+                        win32api.CloseHandle(h)
+                    except Exception:
+                        pass
+                self._pipe_handles.clear()
 
         self.state_store.close()
         logger.info("Supervisor stopped.")
@@ -597,6 +624,188 @@ class SupervisorDaemon:
         proc.stdin.write(config_payload)
         proc.stdin.flush()
         return proc
+
+
+
+    # -------------------------------------------------------------------------
+    # Windows Named Pipe Handlers with User-Only DACL
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _create_user_only_security_attributes():
+        if sys.platform != "win32":
+            return None
+        try:
+            import win32api, win32security, ntsecuritycon
+            token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32security.TOKEN_QUERY)
+            user_sid = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
+            dacl = win32security.ACL()
+            dacl.AddAccessAllowedAce(win32security.ACL_REVISION, ntsecuritycon.GENERIC_READ | ntsecuritycon.GENERIC_WRITE, user_sid)
+            sd = win32security.SECURITY_DESCRIPTOR()
+            sd.SetSecurityDescriptorDacl(True, dacl, False)
+            sd.SetSecurityDescriptorOwner(user_sid, False)
+            sa = win32security.SECURITY_ATTRIBUTES()
+            sa.SECURITY_DESCRIPTOR = sd
+            sa.bInheritHandle = False
+            return sa
+        except Exception as e:
+            logger.warning(f"Could not configure pipe user DACL: {e}")
+            return None
+
+    def _unblock_pipes(self):
+        try:
+            import win32file
+            for p in (self.worker_pipe_path, self.ui_pipe_path):
+                try:
+                    h = win32file.CreateFile(p, win32file.GENERIC_READ | win32file.GENERIC_WRITE, 0, None, win32file.OPEN_EXISTING, 0, None)
+                    win32file.CloseHandle(h)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _start_named_pipes(self):
+        import win32pipe
+        sa = self._create_user_only_security_attributes()
+        self._initial_worker_pipe = win32pipe.CreateNamedPipe(
+            self.worker_pipe_path,
+            win32pipe.PIPE_ACCESS_DUPLEX,
+            win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
+            win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, sa
+        )
+        self._initial_ui_pipe = win32pipe.CreateNamedPipe(
+            self.ui_pipe_path,
+            win32pipe.PIPE_ACCESS_DUPLEX,
+            win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
+            win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, sa
+        )
+        with self._conn_lock:
+            self._pipe_handles.append(self._initial_worker_pipe)
+            self._pipe_handles.append(self._initial_ui_pipe)
+        self._worker_pipe_thread = threading.Thread(target=self._worker_pipe_loop, daemon=True)
+        self._worker_pipe_thread.start()
+        self._ui_pipe_thread = threading.Thread(target=self._ui_pipe_loop, daemon=True)
+        self._ui_pipe_thread.start()
+
+    def _worker_pipe_loop(self):
+        import win32pipe
+        sa = self._create_user_only_security_attributes()
+        h_pipe = self._initial_worker_pipe
+        while self._running:
+            try:
+                try:
+                    win32pipe.ConnectNamedPipe(h_pipe, None)
+                except Exception as e:
+                    if getattr(e, 'winerror', None) != 535:
+                        raise
+                threading.Thread(target=self._handle_worker_pipe_client, args=(h_pipe,), daemon=True).start()
+                if not self._running:
+                    break
+                h_pipe = win32pipe.CreateNamedPipe(
+                    self.worker_pipe_path,
+                    win32pipe.PIPE_ACCESS_DUPLEX,
+                    win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
+                    win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, sa
+                )
+                with self._conn_lock:
+                    self._pipe_handles.append(h_pipe)
+            except Exception:
+                if not self._running:
+                    break
+                time.sleep(0.05)
+
+    def _handle_worker_pipe_client(self, h_pipe):
+        import win32file, win32pipe, win32api
+        authenticated = False
+        try:
+            buffer = ""
+            while self._running:
+                try:
+                    err, data = win32file.ReadFile(h_pipe, 65536)
+                except Exception:
+                    break
+                if not data:
+                    break
+                buffer += data.decode("utf-8")
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    if not line.strip():
+                        continue
+                    msg = json.loads(line)
+                    resp = self._dispatch_worker_message(msg, authenticated)
+                    if msg.get("type", "").upper() == "AUTH" and resp.get("status") == "AUTHENTICATED":
+                        authenticated = True
+                    out = (json.dumps(resp) + "\n").encode("utf-8")
+                    win32file.WriteFile(h_pipe, out)
+                    win32file.FlushFileBuffers(h_pipe)
+        finally:
+            try:
+                win32pipe.DisconnectNamedPipe(h_pipe)
+                win32api.CloseHandle(h_pipe)
+            except Exception:
+                pass
+            with self._conn_lock:
+                if h_pipe in self._pipe_handles:
+                    self._pipe_handles.remove(h_pipe)
+            self.state_store.close()
+
+    def _ui_pipe_loop(self):
+        import win32pipe
+        sa = self._create_user_only_security_attributes()
+        h_pipe = self._initial_ui_pipe
+        while self._running:
+            try:
+                try:
+                    win32pipe.ConnectNamedPipe(h_pipe, None)
+                except Exception as e:
+                    if getattr(e, 'winerror', None) != 535:
+                        raise
+                threading.Thread(target=self._handle_ui_pipe_client, args=(h_pipe,), daemon=True).start()
+                if not self._running:
+                    break
+                h_pipe = win32pipe.CreateNamedPipe(
+                    self.ui_pipe_path,
+                    win32pipe.PIPE_ACCESS_DUPLEX,
+                    win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
+                    win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, sa
+                )
+                with self._conn_lock:
+                    self._pipe_handles.append(h_pipe)
+            except Exception:
+                if not self._running:
+                    break
+                time.sleep(0.05)
+
+    def _handle_ui_pipe_client(self, h_pipe):
+        import win32file, win32pipe, win32api
+        try:
+            buffer = ""
+            while self._running:
+                try:
+                    err, data = win32file.ReadFile(h_pipe, 65536)
+                except Exception:
+                    break
+                if not data:
+                    break
+                buffer += data.decode("utf-8")
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    if not line.strip():
+                        continue
+                    msg = json.loads(line)
+                    resp = self._dispatch_ui_message(msg)
+                    out = (json.dumps(resp) + "\n").encode("utf-8")
+                    win32file.WriteFile(h_pipe, out)
+                    win32file.FlushFileBuffers(h_pipe)
+        finally:
+            try:
+                win32pipe.DisconnectNamedPipe(h_pipe)
+                win32api.CloseHandle(h_pipe)
+            except Exception:
+                pass
+            with self._conn_lock:
+                if h_pipe in self._pipe_handles:
+                    self._pipe_handles.remove(h_pipe)
+            self.state_store.close()
 
 
 if __name__ == "__main__":
