@@ -250,6 +250,7 @@ def test_ipc_kill_mut15_sandbox_path_containment_in_supervisor(supervisor_ipc_en
 
     outside_dir = ws_root.parent / "outside_junc_mut15"
     outside_dir.mkdir(parents=True, exist_ok=True)
+    (outside_dir / "escaped.txt").unlink(missing_ok=True)
     junc_path = ws_root / "workspace_sandbox" / "junc_link"
 
     cmd = f'cmd /c mklink /J "{junc_path}" "{outside_dir}"'
