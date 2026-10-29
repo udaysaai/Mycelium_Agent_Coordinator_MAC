@@ -184,3 +184,102 @@ def test_approval_card_flags_confusables_and_non_ascii():
     assert any("non-ascii" in w.lower() or "confusable" in w.lower() for w in card["warning_messages"])
 
 
+# ============================================================================
+# F7: Real Stack End-to-End Execution (Part 2.4)
+# ============================================================================
+
+def test_real_stack_e2e_supervisor_ui_approval(tmp_path):
+    """
+    Drive the real stack as the Electron app would:
+      1. Supervisor starts with named pipes and ephemeral key.
+      2. Worker connects to worker pipe, authenticates.
+      3. Worker proposes a T2 shell command.
+      4. Action is quarantined in SQLite state store.
+      5. UI channel queries pending quarantines, checks payload integrity flags.
+      6. Operator approves action via UI channel.
+      7. Worker executes approved action using one-shot token.
+      8. Receipt is verified and persisted in DB.
+    """
+    from supervisor import SupervisorDaemon
+    from approval_card import inspect_approval_payload
+    from protocol import HOLApprovalStatus
+
+    daemon = SupervisorDaemon(workspace_root=tmp_path, use_named_pipes=True)
+    try:
+        daemon.start()
+
+        # Step 1: Worker connects to worker pipe
+        auth_resp = pipe_send_recv(daemon.worker_pipe_path, {
+            "type": "AUTH",
+            "secret": daemon.worker_secret
+        })
+        assert auth_resp.get("status") == "AUTHENTICATED"
+
+        # Step 2: Worker proposes T2 shell action
+        cmd = "echo REAL_STACK_VERIFIED"
+        prop_resp = pipe_send_recv(daemon.worker_pipe_path, {
+            "type": "PROPOSE_ACTION",
+            "secret": daemon.worker_secret,
+            "intent": "execute diagnostic command in real stack",
+            "tool_name": "execute_shell_command",
+            "payload": {"command": cmd}
+        })
+        assert prop_resp.get("status") == "QUARANTINED"
+        qid = prop_resp.get("quarantine_id")
+        call_hash = prop_resp.get("call_hash")
+
+        # Step 3: UI channel lists pending quarantines
+        pending_resp = pipe_send_recv(daemon.ui_pipe_path, {
+            "secret": daemon.ui_secret,
+            "type": "LIST_PENDING"
+        })
+        assert pending_resp.get("status") == "OK"
+        pending_list = pending_resp.get("pending", [])
+        assert any(q["quarantine_id"] == qid for q in pending_list)
+
+        # Step 4: UI channel inspects approval card schema & flags
+        card = inspect_approval_payload(
+            tool_name="execute_shell_command",
+            payload={"command": cmd},
+            tier="T2",
+            call_hash=call_hash
+        )
+        assert card["exact_command"] == cmd
+        assert card["short_hash"] == call_hash[:12]
+        assert card["flags"]["has_newlines"] is False
+        assert card["flags"]["has_control_chars"] is False
+
+        # Step 5: UI channel approves action
+        approve_resp = pipe_send_recv(daemon.ui_pipe_path, {
+            "secret": daemon.ui_secret,
+            "type": "APPROVE_ACTION",
+            "quarantine_id": qid,
+            "operator_notes": "Operator authorized via secure UI channel"
+        })
+        assert approve_resp.get("status") == "APPROVED"
+        token = approve_resp.get("one_shot_token")
+        assert token is not None
+
+        # Step 6: Worker executes approved action with token
+        exec_resp = pipe_send_recv(daemon.worker_pipe_path, {
+            "type": "EXECUTE_APPROVED",
+            "secret": daemon.worker_secret,
+            "quarantine_id": qid,
+            "one_shot_token": token,
+            "payload": {"command": cmd}
+        })
+        assert exec_resp.get("status") == "COMPLETED"
+        assert exec_resp.get("success") is True
+        assert exec_resp.get("exit_code") == 0
+        assert "receipt" in exec_resp
+        assert exec_resp["receipt"]["verified"] is True
+
+        # Step 7: State store verification
+        q_record = daemon.state_store.get_quarantine(qid)
+        assert q_record["status"] == HOLApprovalStatus.APPROVED.value
+        assert q_record["one_shot_token"] == "CONSUMED"
+    finally:
+        daemon.stop()
+
+
+

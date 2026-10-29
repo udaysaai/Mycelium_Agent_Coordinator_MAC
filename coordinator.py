@@ -59,7 +59,8 @@ class MyceliumCoordinator:
         state_store: Optional[StateStore] = None,
         key_file_path: Optional[str | Path] = None,
         policy_engine: Optional[PolicyEngine] = None,
-        verifier: Optional[DeterministicVerifier] = None
+        verifier: Optional[DeterministicVerifier] = None,
+        _supervisor_mode: bool = False
     ):
         """
         Initialize the Mycelium Coordinator.
@@ -74,13 +75,13 @@ class MyceliumCoordinator:
         """
         # Enforce process boundary: in production mode, direct in-process coordinator is blocked.
         # Only isolated test suites with explicit opt-in can initialize in-process.
-        if os.environ.get("MAC_UNSAFE_INPROCESS_FOR_TESTS") != "1":
+        if not _supervisor_mode and os.environ.get("MAC_UNSAFE_INPROCESS_FOR_TESTS") != "1":
             raise RuntimeError(
                 "In-process coordinator execution is blocked in production mode. "
                 "The application must run through the SupervisorDaemon boundary. "
                 "Set MAC_UNSAFE_INPROCESS_FOR_TESTS=1 for isolated tests only."
             )
-        else:
+        elif not _supervisor_mode:
             sys.stderr.write(
                 "[SECURITY WARNING] Running MyceliumCoordinator in unsafe in-process mode! "
                 "This mode bypasses process isolation and is for tests only.\n"

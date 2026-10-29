@@ -105,7 +105,8 @@ class SupervisorDaemon:
             local_daemon=self.daemon,
             state_store=self.state_store,
             policy_engine=self.policy_engine,
-            verifier=self.verifier
+            verifier=self.verifier,
+            _supervisor_mode=True
         )
 
         # 3. IPC Channels and Per-Session Secrets
@@ -338,7 +339,11 @@ class SupervisorDaemon:
             return {"status": "ERROR", "message": "Authentication failed."}
 
         if not authenticated:
-            return {"status": "ERROR", "message": "Unauthenticated connection."}
+            secret = msg.get("secret", "")
+            if secret and secrets.compare_digest(secret, self.worker_secret):
+                authenticated = True
+            else:
+                return {"status": "ERROR", "message": "Unauthenticated connection."}
 
         # Check for forbidden message types (approval injection vector)
         if msg_type in self.FORBIDDEN_WORKER_MESSAGE_TYPES:
