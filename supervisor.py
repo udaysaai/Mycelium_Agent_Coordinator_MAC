@@ -186,8 +186,12 @@ class SupervisorDaemon:
             info = EXTENDED_LIMIT()
             # 0x2000 = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             # 0x0008 = JOB_OBJECT_LIMIT_ACTIVE_PROCESS (max 16 processes)
-            info.basic.limit_flags = 0x2000 | 0x0008
+            # 0x0100 = JOB_OBJECT_LIMIT_PROCESS_MEMORY (max 512MB)
+            # 0x0200 = JOB_OBJECT_LIMIT_JOB_MEMORY (max 512MB)
+            info.basic.limit_flags = 0x2000 | 0x0008 | 0x0100 | 0x0200
             info.basic.active_procs = 16
+            info.proc_mem_limit = 512 * 1024 * 1024
+            info.job_mem_limit = 512 * 1024 * 1024
 
             res = kernel32.SetInformationJobObject(
                 h_job, 9, ctypes.byref(info), ctypes.sizeof(info)
@@ -240,6 +244,25 @@ class SupervisorDaemon:
             win32security.SetUserObjectSecurity(hdesk, win32security.DACL_SECURITY_INFORMATION | win32security.LABEL_SECURITY_INFORMATION, sd_desk)
         except Exception:
             pass
+
+    def spawn_worker_low_integrity(
+        self,
+        script_path: Path,
+        extra_args: Optional[List[str]] = None,
+        python_executable: Optional[Path] = None
+    ) -> Any:
+        script_body = script_path.read_text(encoding="utf-8")
+        result = self.spawn_worker_process(script_body)
+
+        class ProcessShim:
+            def __init__(self, res):
+                self._res = res
+                self.returncode = 0 if "error" not in res else 1
+
+            def communicate(self, timeout=None):
+                return f"PROBE_JSON:{json.dumps(self._res)}\n", ""
+
+        return ProcessShim(result)
 
     def spawn_worker_process(self, script_body: str) -> Dict[str, Any]:
         """
