@@ -26,6 +26,15 @@ try {
         throw "git clone failed with exit code $LASTEXITCODE"
     }
 
+    # If repo-local worker runtime exists, copy it to clone and grant Low-IL read permissions
+    $repoRuntime = Join-Path $repoDir "runtime"
+    if (Test-Path $repoRuntime) {
+        Write-Host "Copying repo-local worker runtime to clone..."
+        Copy-Item -Recurse $repoRuntime (Join-Path $cloneDir "runtime")
+    }
+    # Grant Low-IL read permissions to temporary directory so Low-IL probes can run
+    icacls "$tempDir" /grant "*S-1-16-4096:(OI)(CI)RX" /T /Q
+
     $commitHash = ""
     Push-Location $cloneDir
     try {
