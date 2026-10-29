@@ -20,6 +20,10 @@ from rich.table import Table
 from rich.prompt import Confirm
 from rich.rule import Rule
 
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(WORKSPACE_ROOT / "mac"))
+sys.path.insert(0, str(WORKSPACE_ROOT))
+
 from protocol import (
     ActionRequest,
     HOLApprovalStatus,
@@ -81,7 +85,7 @@ def rich_hol_hook(interactive: bool):
 
 def run_test_suite(auto_mode: bool = False):
     """Run full test and demonstration suite."""
-    workspace_dir = Path("./workspace_sandbox").resolve()
+    workspace_dir = (WORKSPACE_ROOT / "workspace_sandbox").resolve()
     workspace_dir.mkdir(exist_ok=True)
 
     daemon = LocalExecDaemon(workspace_root=workspace_dir)

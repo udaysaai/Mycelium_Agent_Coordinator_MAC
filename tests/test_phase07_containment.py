@@ -24,7 +24,7 @@ import pytest
 
 from supervisor import SupervisorDaemon
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parent.parent
 WORKER_PYTHON = ROOT_DIR / "runtime" / "worker_python" / "python.exe"
 
 
@@ -83,7 +83,7 @@ print("PROBE_JSON:" + json.dumps(res))
     assert "read_success" in result
 
     # Verify THREAT_MODEL.md documents this specific residual risk
-    threat_model = (ROOT_DIR / "THREAT_MODEL.md").read_text(encoding="utf-8")
+    threat_model = (ROOT_DIR / "docs" / "THREAT_MODEL.md" if (ROOT_DIR / "docs" / "THREAT_MODEL.md").exists() else ROOT_DIR / "THREAT_MODEL.md").read_text(encoding="utf-8")
     assert "W1" in threat_model
     assert "read" in threat_model.lower()
 
@@ -150,7 +150,7 @@ print("PROBE_JSON:" + json.dumps(res))
     assert "connected" in result
 
     # Verify documented in THREAT_MODEL.md
-    threat_model = (ROOT_DIR / "THREAT_MODEL.md").read_text(encoding="utf-8")
+    threat_model = (ROOT_DIR / "docs" / "THREAT_MODEL.md" if (ROOT_DIR / "docs" / "THREAT_MODEL.md").exists() else ROOT_DIR / "THREAT_MODEL.md").read_text(encoding="utf-8")
     assert "W3" in threat_model
     assert "network" in threat_model.lower()
 
@@ -320,7 +320,7 @@ def test_w8_supervisor_loaded_files_not_writable(containment_env):
     preventing Low-IL worker overwrite attempts.
     """
     sup: SupervisorDaemon = containment_env["supervisor"]
-    supervisor_py = ROOT_DIR / "supervisor.py"
+    supervisor_py = ROOT_DIR / "mac" / "supervisor.py" if (ROOT_DIR / "mac" / "supervisor.py").exists() else ROOT_DIR / "supervisor.py"
 
     probe_script = f"""
 import json

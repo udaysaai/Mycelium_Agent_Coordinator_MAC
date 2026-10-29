@@ -45,8 +45,12 @@ function findSupervisorScript() {
   const candidates = [
     path.join(__dirname, 'supervisor.py'),
     path.resolve(__dirname, '..', 'supervisor.py'),
+    path.resolve(__dirname, '..', 'mac', 'supervisor.py'),
+    path.join(__dirname, 'mac', 'supervisor.py'),
     path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'supervisor.py'),
-    path.join(process.resourcesPath || '', 'supervisor.py')
+    path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'mac', 'supervisor.py'),
+    path.join(process.resourcesPath || '', 'supervisor.py'),
+    path.join(process.resourcesPath || '', 'mac', 'supervisor.py')
   ];
   for (const c of candidates) {
     if (c && fs.existsSync(c)) {
@@ -67,14 +71,18 @@ function findEngineScript() {
   const candidates = [
     // 1. Packaged asar unpacked directory
     path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'python_core', 'engine_bridge.py'),
-    // 2. Bundled python_core subfolder
+    path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'mac', 'engine_bridge.py'),
+    // 2. Bundled python_core / mac subfolder
     path.join(__dirname, 'python_core', 'engine_bridge.py'),
+    path.join(__dirname, 'mac', 'engine_bridge.py'),
     // 3. Local directory
     path.join(__dirname, 'engine_bridge.py'),
     // 4. Parent workspace directory (development mode)
     path.resolve(__dirname, '..', 'engine_bridge.py'),
+    path.resolve(__dirname, '..', 'mac', 'engine_bridge.py'),
     // 5. Electron resources directory
     path.join(process.resourcesPath || '', 'python_core', 'engine_bridge.py'),
+    path.join(process.resourcesPath || '', 'mac', 'engine_bridge.py'),
     path.join(process.resourcesPath || '', 'engine_bridge.py'),
     path.join(process.resourcesPath || '', 'app.asar.unpacked', 'python_core', 'engine_bridge.py')
   ];
@@ -267,11 +275,17 @@ function spawnPythonDaemon() {
         ? ['-3', supScript.scriptPath, '--workspace', wsDir]
         : [supScript.scriptPath, '--workspace', wsDir];
 
+      const pypath = [
+        path.join(baseDir, 'mac'),
+        baseDir,
+        process.env.PYTHONPATH || ''
+      ].filter(Boolean).join(path.delimiter);
+
       console.log(`[Supervisor] Spawning supervisor process: ${pythonCmd} ${supArgs.join(' ')}`);
       supervisorProcess = spawn(pythonCmd, supArgs, {
         cwd: supScript.dirPath,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONPATH: pypath }
       });
 
       supervisorProcess.on('error', (err) => {

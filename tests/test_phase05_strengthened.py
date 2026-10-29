@@ -47,7 +47,8 @@ def test_strengthened_a1_crash_durability_real_subprocess():
 import sys
 import time
 from pathlib import Path
-sys.path.insert(0, {repr(str(Path(__file__).resolve().parent))})
+sys.path.insert(0, {repr(str(Path(__file__).resolve().parent.parent))})
+sys.path.insert(0, {repr(str(Path(__file__).resolve().parent.parent / "mac"))})
 from state_store import StateStore
 from protocol import ActionRequest, HOLQuarantineEvent, HOLApprovalStatus, PrivilegeTier, SafetyTier
 

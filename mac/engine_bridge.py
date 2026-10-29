@@ -83,7 +83,7 @@ class EngineBridge:
         pipe_path: Optional[str] = None,
         ui_secret: Optional[str] = None
     ):
-        self.workspace_root = workspace_root or (BASE_DIR / "workspace_sandbox").resolve()
+        self.workspace_root = workspace_root or ((BASE_DIR.parent / "workspace_sandbox").resolve() if (BASE_DIR.parent / "workspace_sandbox").exists() else (BASE_DIR / "workspace_sandbox").resolve())
         self.workspace_root.mkdir(parents=True, exist_ok=True)
 
         self.pipe_path = pipe_path or os.environ.get("MAC_UI_PIPE") or ""

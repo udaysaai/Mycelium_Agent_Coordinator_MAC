@@ -45,7 +45,7 @@ class StateStore:
     ):
         if db_path is None:
             base_dir = Path(__file__).resolve().parent
-            data_dir = base_dir / "data"
+            data_dir = base_dir.parent / "data" if (base_dir.parent / "data").exists() else (base_dir / "data")
             data_dir.mkdir(parents=True, exist_ok=True)
             self.db_path = data_dir / "mac_state.db"
         else:

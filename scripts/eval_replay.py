@@ -31,11 +31,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(WORKSPACE_ROOT / "mac"))
+sys.path.insert(0, str(WORKSPACE_ROOT))
+
 from protocol import HOLApprovalStatus
 from state_store import StateStore
 from supervisor import SupervisorDaemon
-
-WORKSPACE_ROOT = Path(__file__).resolve().parent
 
 
 def get_process_memory_mb(pid: int) -> float:
@@ -171,7 +173,7 @@ def run_benchmark_iteration(iter_idx: int, use_named_pipes: bool = True) -> Dict
         t_start = time.perf_counter()
         try:
             # Spawn worker subprocess
-            worker_script = WORKSPACE_ROOT / "eval_worker_proc.py"
+            worker_script = (WORKSPACE_ROOT / "mac" / "eval_worker_proc.py") if (WORKSPACE_ROOT / "mac" / "eval_worker_proc.py").exists() else (WORKSPACE_ROOT / "eval_worker_proc.py")
             if use_named_pipes and sys.platform == "win32":
                 cmd = [
                     sys.executable, str(worker_script),
@@ -308,7 +310,7 @@ def run_injected_failure_worker_killed(iter_idx: int = 101, use_named_pipes: boo
 
         worker_proc: Optional[subprocess.Popen] = None
         try:
-            worker_script = WORKSPACE_ROOT / "eval_worker_proc.py"
+            worker_script = (WORKSPACE_ROOT / "mac" / "eval_worker_proc.py") if (WORKSPACE_ROOT / "mac" / "eval_worker_proc.py").exists() else (WORKSPACE_ROOT / "eval_worker_proc.py")
             if use_named_pipes and sys.platform == "win32":
                 cmd = [
                     sys.executable, str(worker_script),

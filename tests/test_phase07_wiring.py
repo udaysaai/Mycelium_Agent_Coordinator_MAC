@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 import pytest
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
 def _pipe_send_recv(pipe_path: str, msg: dict, timeout: float = 5.0) -> dict:
@@ -76,7 +76,7 @@ def test_supervisor_spawns_and_emits_handshake(tmp_path):
 
     cmd = [
         sys.executable,
-        str(ROOT_DIR / "supervisor.py"),
+        str(ROOT_DIR / "mac" / "supervisor.py" if (ROOT_DIR / "mac" / "supervisor.py").exists() else ROOT_DIR / "supervisor.py"),
         "--workspace", str(ws)
     ]
 
@@ -302,7 +302,7 @@ def test_engine_bridge_refuses_inprocess_and_bridges_supervisor_pipe(tmp_path, m
         env["MAC_UI_SECRET"] = sup.ui_secret
 
         proc = subprocess.Popen(
-            [sys.executable, str(ROOT_DIR / "engine_bridge.py")],
+            [sys.executable, str(ROOT_DIR / "mac" / "engine_bridge.py" if (ROOT_DIR / "mac" / "engine_bridge.py").exists() else ROOT_DIR / "engine_bridge.py")],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 DESKTOP_DIR = BASE_DIR / "mycelium_desktop"
 if not DESKTOP_DIR.exists():
     # Fallback to sibling directory

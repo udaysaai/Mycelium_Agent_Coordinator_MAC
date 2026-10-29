@@ -340,7 +340,9 @@ class SupervisorDaemon:
                 startup.hStdError = h_out
 
                 worker_exe = sys.executable
-                repo_worker_py = Path(__file__).parent / "runtime" / "worker_python" / "python.exe"
+                repo_worker_py = Path(__file__).resolve().parent.parent / "runtime" / "worker_python" / "python.exe"
+                if not repo_worker_py.exists():
+                    repo_worker_py = Path(__file__).parent / "runtime" / "worker_python" / "python.exe"
                 if repo_worker_py.exists():
                     worker_exe = str(repo_worker_py)
 
@@ -964,7 +966,11 @@ class SupervisorDaemon:
             "PATH": os.environ.get("PATH", ""),
             "TEMP": os.environ.get("TEMP", ""),
             "TMP": os.environ.get("TMP", ""),
-            "PYTHONPATH": str(Path(__file__).resolve().parent)
+            "PYTHONPATH": os.pathsep.join(filter(None, [
+                str(Path(__file__).resolve().parent.parent),
+                str(Path(__file__).resolve().parent),
+                os.environ.get("PYTHONPATH", "")
+            ]))
         }
 
         cmd = [sys.executable, str(script_path)] + (extra_args or [])

@@ -21,13 +21,14 @@ import sys
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
-WORKSPACE_ROOT = Path(__file__).resolve().parent
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+MAC_DIR = WORKSPACE_ROOT / "mac" if (WORKSPACE_ROOT / "mac").exists() else WORKSPACE_ROOT
 
-VERIFIER_PATH = WORKSPACE_ROOT / "verifier.py"
-POLICY_PATH = WORKSPACE_ROOT / "policy_engine.py"
-COORDINATOR_PATH = WORKSPACE_ROOT / "coordinator.py"
-STATE_STORE_PATH = WORKSPACE_ROOT / "state_store.py"
-SUPERVISOR_PATH = WORKSPACE_ROOT / "supervisor.py"
+VERIFIER_PATH = MAC_DIR / "verifier.py"
+POLICY_PATH = MAC_DIR / "policy_engine.py"
+COORDINATOR_PATH = MAC_DIR / "coordinator.py"
+STATE_STORE_PATH = MAC_DIR / "state_store.py"
+SUPERVISOR_PATH = MAC_DIR / "supervisor.py"
 
 MIRROR_VERIFIER_PATH = None
 MIRROR_POLICY_PATH = None
@@ -259,7 +260,14 @@ BOUNDARY_ONLY_TESTS = [
 
 def run_tests(test_files: List[str]) -> Tuple[int, str]:
     """Run specified pytest files."""
-    cmd = [sys.executable, "-m", "pytest", "-v"] + test_files
+    resolved_tests = []
+    for t in test_files:
+        p = Path(t)
+        if not (WORKSPACE_ROOT / t).is_file() and (WORKSPACE_ROOT / "tests" / t).is_file():
+            resolved_tests.append(str(Path("tests") / t))
+        else:
+            resolved_tests.append(t)
+    cmd = [sys.executable, "-m", "pytest", "-v"] + resolved_tests
     res = subprocess.run(
         cmd,
         cwd=WORKSPACE_ROOT,
