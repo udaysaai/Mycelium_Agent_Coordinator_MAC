@@ -11,6 +11,16 @@
   "has_create_appcontainer_profile": true,
   "has_create_restricted_token": true,
   "has_set_token_information": true,
+  "appcontainer_probe": {
+    "can_call_create_appcontainer_profile": true,
+    "profile_error": null,
+    "can_launch_appcontainer_process": true,
+    "launch_error": null,
+    "cpython_dll_load_status": "EXIT_CODE_0xc0000135",
+    "cpython_exit_code": "0xc0000135",
+    "notes": [],
+    "appcontainer_sid": "S-1-15-2-415864145-1647125233-3892686428-2958539221-1189358823-1841608464-1733477565"
+  },
   "wsl_available": true,
   "wsl_status": "D\u0000e\u0000f\u0000a\u0000u\u0000l\u0000t\u0000 \u0000V\u0000e\u0000r\u0000s\u0000i\u0000o\u0000n\u0000:\u0000 \u00002\u0000\n\u0000\n\u0000",
   "windows_sandbox_executable": false
