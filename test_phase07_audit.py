@@ -241,3 +241,76 @@ print("PROBE_JSON:" + json.dumps(probe_res))
     finally:
         standin_proc.kill()
         standin_proc.wait()
+
+
+# ============================================================================
+# 1E. State Key Lifecycle & Restart Verification (Q6)
+# ============================================================================
+
+def test_state_key_lifecycle_across_supervisor_restart_and_no_disk_leak(tmp_path):
+    """
+    State Key Lifecycle:
+      1. Key is ephemeral in supervisor memory: dies on process exit.
+      2. No key material is written to disk (not in SQLite, not in checkpoint, not in logs).
+      3. Worker probe cannot read any key material.
+      4. After supervisor restart, old tokens are invalidated and old approved actions
+         cannot be executed under the new supervisor instance.
+    """
+    ws = tmp_path / "mac_lifecycle_ws"
+    ws.mkdir(parents=True, exist_ok=True)
+
+    # 1. Instance 1
+    sup1 = SupervisorDaemon(workspace_root=ws, use_named_pipes=True)
+    sup1.start()
+    key1 = sup1.get_ephemeral_key()
+    assert isinstance(key1, bytes) and len(key1) == 32
+
+    # Propose a T2 shell action and approve it
+    prop = sup1._dispatch_worker_message({
+        "type": "PROPOSE_ACTION",
+        "intent": "execute shell command",
+        "tool_name": "execute_shell_command",
+        "payload": {"command": "echo hello"}
+    }, authenticated=True)
+    assert prop["status"] == "QUARANTINED"
+    qid = prop["quarantine_id"]
+
+    # Approve via UI
+    appr = sup1._dispatch_ui_message({
+        "type": "APPROVE_ACTION",
+        "secret": sup1.ui_secret,
+        "quarantine_id": qid,
+        "operator_id": "auditor_op"
+    })
+    assert appr["status"] == "APPROVED"
+    old_token = appr["one_shot_token"]
+    assert old_token
+
+    # 2. Check disk persistence: search all files in workspace for key1 bytes
+    sup1.stop()
+
+    for p in ws.rglob("*"):
+        if p.is_file():
+            content = p.read_bytes()
+            assert key1 not in content, f"CRITICAL: Key material leaked into disk file: {p}"
+
+    # 3. Instance 2 (Supervisor restart)
+    sup2 = SupervisorDaemon(workspace_root=ws, use_named_pipes=True)
+    sup2.start()
+    key2 = sup2.get_ephemeral_key()
+    assert key2 != key1, "New supervisor instance must generate a fresh ephemeral key"
+
+    try:
+        # Attempt to execute the approved action using the old token under the new supervisor
+        exec_attempt = sup2._dispatch_worker_message({
+            "type": "EXECUTE_APPROVED",
+            "quarantine_id": qid,
+            "one_shot_token": old_token,
+            "payload": {"command": "echo hello"}
+        }, authenticated=True)
+
+        # Must be rejected (cannot execute with old token after restart)
+        assert exec_attempt.get("status") == "ERROR", "Security Violation: Executed action with old token across restart!"
+        assert exec_attempt.get("exit_code") in (401, 403), f"Expected 401 or 403, got: {exec_attempt}"
+    finally:
+        sup2.stop()
