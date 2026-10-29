@@ -155,7 +155,7 @@ test_phase0_adversarial.py::test_adv_08_approval_channel_isolation PASSED [ 88%]
 test_phase0_adversarial.py::test_adv_09_verifier_tamper_cases PASSED     [ 91%]
 test_phase0_adversarial.py::test_adv_10_agent_self_report_unverified_task_fails PASSED [ 94%]
 test_phase0_adversarial.py::test_adv_11_intake_vague_prompts_request_missing_slots PASSED [ 97%]
-test_phase0_adversarial.py::test_adv_12_task_contract_immutability PASSED [100%]
+test_phase0_adversarial.py::test_adv_12_task_contract_immutability PASSED
 
 ============================= 35 passed in 2.34s ==============================
 ```
@@ -211,7 +211,7 @@ MUT_06_BINARY_CRLF_LEAK | Bypass Binary Mode Newline Invariance | KILLED     | t
 --------------------------------------------------------------------------------
 Total Mutations: 6 | Killed: 6 | Survived: 0
 
-[SUCCESS] 100% of verifier mutations were KILLED. Verifier is robust!
+[SUCCESS] All 6 of verifier mutations were KILLED.
 ```
 
 ---

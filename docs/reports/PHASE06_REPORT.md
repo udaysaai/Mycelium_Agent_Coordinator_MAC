@@ -146,7 +146,7 @@ Below is the audited end-to-end trace detailing the exact file:line hops across 
        ▼
 [ verifier.py : L35-L120 ] (Deterministic Verifier)
        │  Re-reads filesystem state from ground truth (SHA-256, byte count, exit code)
-       │  Generates cryptographically signed VerificationReceipt
+       │  Generates HMAC-signed VerificationReceipt
        ▼
 [ state_store.py : L250-L310 ] (save_receipt)
        │  Appends receipt to tamper-evident hash chain and updates state checkpoint

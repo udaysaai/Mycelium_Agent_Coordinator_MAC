@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes
+import hmac
 import json
 import logging
 import os
@@ -136,8 +137,8 @@ class SupervisorDaemon:
 
         # Named Pipe attributes with random per-session names
         self.use_named_pipes = use_named_pipes
-        self.worker_pipe_path = rf"\\.\pipe\mac_worker_{secrets.token_hex(16)}"
-        self.ui_pipe_path = rf"\\.\pipe\mac_ui_{secrets.token_hex(16)}"
+        self.worker_pipe_path = rf"\\.\pipe\mac_worker_ipc_{secrets.token_hex(16)}"
+        self.ui_pipe_path = rf"\\.\pipe\mac_ui_ipc_{secrets.token_hex(16)}"
         self._pipe_handles: List[Any] = []
         self._ui_pipe_handles: List[Any] = []
         self._worker_pipe_handles: List[Any] = []
@@ -585,14 +586,14 @@ class SupervisorDaemon:
         # Handle Auth
         if msg_type == "AUTH":
             secret = msg.get("secret", "")
-            if hmac_secret_match := secrets.compare_digest(secret, self.worker_secret):
+            if hmac_secret_match := hmac.compare_digest(secret, self.worker_secret):
                 return {"status": "AUTHENTICATED", "message": "Worker session authorized."}
             logger.warning("[SECURITY] Worker channel authentication failed (invalid secret).")
             return {"status": "ERROR", "message": "Authentication failed."}
 
         if not authenticated:
             secret = msg.get("secret", "")
-            if secret and secrets.compare_digest(secret, self.worker_secret):
+            if secret and hmac.compare_digest(secret, self.worker_secret):
                 authenticated = True
             else:
                 return {"status": "ERROR", "message": "Unauthenticated connection."}
@@ -869,7 +870,7 @@ class SupervisorDaemon:
 
     def _dispatch_ui_message(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         secret = msg.get("secret", "")
-        if not secrets.compare_digest(secret, self.ui_secret):
+        if not hmac.compare_digest(secret, self.ui_secret):
             return {"status": "ERROR", "message": "Unauthorized: Invalid UI secret."}
 
         msg_type = str(msg.get("type", "")).upper()

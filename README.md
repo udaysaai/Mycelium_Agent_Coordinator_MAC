@@ -19,7 +19,7 @@ flowchart TD
     end
 
     subgraph CoordinatorPlane["Mycelium Coordinator & Safety Gate"]
-        MeshRoute["Mycelium Semantic Vector-Mesh\n(<15ms Tool Discovery)"]
+        MeshRoute["Mycelium Semantic Vector-Mesh\n(Sublinear Tool Discovery)"]
         HOLGate{"HOL Guard\nIs MUTATING or\nBACKGROUND State-Altering?"}
         HumanHook["Operator Quarantine Hook\n(Approval / Rejection)"]
         AuditLog["Audit & Telemetry Log"]
@@ -70,7 +70,7 @@ flowchart TD
 ### 3. `mcp_gateway.py` (Model Context Protocol Gateway)
 - **`SemanticVectorMesh`**:
   - In-memory sparse vector indexing with sublinear character 3-gram and token frequencies.
-  - Cosine similarity matching typically completing in sub-millisecond ranges (benchmarked under 15ms target).
+  - Cosine similarity matching typically completing in sub-millisecond ranges (measured median latency on test hardware < 1ms).
   - **Dynamic Tool Discovery** — tools are matched by user intent without static prompt bloat.
 - **`MCPGateway`**:
   - Manages tool registries and parameter schemas.
@@ -97,30 +97,34 @@ flowchart TD
 
 ### Run the Interactive Terminal Demo
 ```bash
-python demo_runner.py
+python scripts/demo_runner.py
 ```
 
 ### Run in Automated Verification Mode (CI/CD)
 ```bash
-python demo_runner.py --auto-approve
+python scripts/demo_runner.py --auto-approve
 ```
 
 ### Run the Pytest Test Suite
 ```bash
-pytest test_mac.py -v
+pytest -v
 ```
 
 ---
 
-## ⚡ Benchmarks & SLA Verification
+## ⚡ Measured Benchmarks & Performance Metrics
 
-| Subsystem | Requirement / SLA | Observed Real-World Metric | Verdict |
+| Subsystem | Target Threshold | Measured Median Latency (Test Hardware) | Verdict |
 | :--- | :--- | :--- | :--- |
 | **Semantic Vector Mesh** | `< 15.00 ms` | **`0.082 ms`** | **PASSED (Sub-millisecond)** |
 | **READ_ONLY Dispatch** | `< 15.00 ms` | **`0.150 ms`** | **PASSED (Sub-millisecond)** |
 | **HOL Guard Interception** | Mutating actions quarantined | **Quarantine Enforced** | **PASSED** |
 | **Subprocess Isolation** | Real OS execution & timeout catch | **Clean process kill & exitCode -1** | **PASSED** |
 | **Schema Validation** | Strict Pydantic v2 argument validation | **Strictly Enforced** | **PASSED** |
+
+> [!NOTE]
+> **Security & Containment Notice (W1 & W3 Residual Risks)**:
+> Worker execution operates under Windows Low Integrity Level (MIC) and Job Object memory limits (512MB RAM). Under Windows MIC, Low-IL processes retain read access to standard user files (W1) and outbound network socket creation (W3). Real financial records or confidential credentials must not be processed by the worker without external virtualization (e.g., Docker, WSL2).
 
 ---
 

@@ -2,7 +2,7 @@
 US Neural - Mycelium Semantic Protocol & HOL Guard
 Module: demo_runner.py
 Description: Interactive terminal verification suite styled with Rich.
-             Demonstrates sub-15ms READ_ONLY auto-dispatch, HOL Guard quarantine,
+             Demonstrates low-latency READ_ONLY auto-dispatch, HOL Guard quarantine,
              and isolated LocalExecDaemon execution.
 """
 
@@ -110,7 +110,7 @@ def run_test_suite(auto_mode: bool = False):
     )
 
     # -------------------------------------------------------------------------
-    # TEST 1: Foreground READ_ONLY Request (Auto-executed in <15ms)
+    # TEST 1: Foreground READ_ONLY Request (Auto-executed via fast-path)
     # -------------------------------------------------------------------------
     console.print(Rule(title="[bold cyan]TEST 1: Foreground READ_ONLY Request (Zero-Penalty Bypass)[/bold cyan]", style="cyan"))
     
@@ -143,7 +143,7 @@ def run_test_suite(auto_mode: bool = False):
     res_table.add_row(
         "[green]SUCCESS[/green]" if t1_result.success else "[red]FAIL[/red]",
         str(t1_result.exitCode),
-        f"[bold green]{t1_result.latencyMs:.2f} ms[/bold green] (<15ms SLA)",
+        f"[bold green]{t1_result.latencyMs:.2f} ms[/bold green] (measured on test hardware)",
         "[bold green]YES (Auto-Approved)[/bold green]",
         t1_result.stdout[:80] + "..." if len(t1_result.stdout) > 80 else t1_result.stdout
     )
@@ -241,12 +241,12 @@ def run_test_suite(auto_mode: bool = False):
     console.print(Rule(title="[bold green]EXECUTIVE VERIFICATION SUMMARY[/bold green]", style="green"))
     summary_table = Table(title="US Neural MAC Sub-System Verification Matrix", border_style="cyan")
     summary_table.add_column("Module / Subsystem", style="bold white")
-    summary_table.add_column("Target SLA / Requirement", style="yellow")
+    summary_table.add_column("Target Threshold", style="yellow")
     summary_table.add_column("Observed Metric", style="green")
     summary_table.add_column("Status", style="bold green")
 
-    summary_table.add_row("Semantic Vector-Mesh", "<15ms Tool Discovery", f"{disc_latency:.3f} ms", "PASSED")
-    summary_table.add_row("READ_ONLY Fast-Path", "<15ms Zero-Penalty Bypass", f"{t1_result.latencyMs:.2f} ms", "PASSED")
+    summary_table.add_row("Semantic Vector-Mesh", "Target <15ms", f"{disc_latency:.3f} ms", "PASSED")
+    summary_table.add_row("READ_ONLY Fast-Path", "Target <15ms", f"{t1_result.latencyMs:.2f} ms", "PASSED")
     summary_table.add_row("HOL Guard Quarantine", "Intercept all MUTATING actions", "Quarantine Enforced", "PASSED")
     summary_table.add_row("LocalExecDaemon", "Real Process Isolation & Timeout", "Zero Hangs / Real Subprocess", "PASSED")
     summary_table.add_row("Pydantic v2 Gateway", "Strict Schema Validation", "Strictly Enforced", "PASSED")

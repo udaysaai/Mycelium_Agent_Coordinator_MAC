@@ -157,7 +157,7 @@ def test_mcp_gateway_semantic_vector_discovery(gateway: MCPGateway, daemon: Loca
 
     assert len(matches) > 0
     assert matches[0].tool.name == "read_workspace_file"
-    assert latency_ms < 15.0  # Must be strictly under 15ms SLA
+    assert latency_ms < 15.0  # Must complete under benchmark threshold
     assert matches[0].similarityScore > 0.1
 
 
@@ -194,7 +194,7 @@ def test_coordinator_read_only_fast_path(daemon: LocalExecDaemon):
     res = coordinator.dispatch(req)
     assert res.success is True
     assert res.exitCode == 0
-    assert res.latencyMs < 15.0  # READ_ONLY fast-path under 15ms
+    assert res.latencyMs < 15.0  # READ_ONLY fast-path under benchmark threshold
 
 
 def test_coordinator_hol_guard_approval(daemon: LocalExecDaemon):

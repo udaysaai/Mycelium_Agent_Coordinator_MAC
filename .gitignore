@@ -21,9 +21,16 @@ __pycache__/
 !.env.example
 *.key
 keys/
-data/*.db
-data/*.db-wal
-data/*.db-shm
+
+# State Databases & Checkpoints
+data/
+*.checkpoint.json
+mac_state.db*
+
+# Sandboxes & Runtime Artifacts
+workspace_sandbox/*
+!workspace_sandbox/.gitkeep
+runtime/
 
 # Operating System Files
 .DS_Store

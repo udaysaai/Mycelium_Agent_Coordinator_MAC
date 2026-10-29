@@ -12,7 +12,7 @@ The state-integrity HMAC key and token-signing key are instantiated during `Supe
 ```python
 self._signing_key: bytes = secrets.token_bytes(32)
 ```
-This is a 256-bit cryptographically strong pseudorandom byte array generated directly from the operating system's CSP (`CryptGenRandom` / `BCryptGenRandom` via Python `secrets`).
+This is a 256-bit CSP pseudorandom byte array generated directly from the operating system's CSP (`CryptGenRandom` / `BCryptGenRandom` via Python `secrets`).
 
 ### Key In-Memory Location
 - The key resides strictly in private virtual memory of the `SupervisorDaemon` process (`self._signing_key`, passed to `StateStore(integrity_key=...)` and `PolicyEngine(signing_key=...)`).
