@@ -37,11 +37,13 @@
 | **WS3.4** | `60d5752` | Implemented verify_reconciliation out-of-band predicates in verifier.py in GREEN commit. | WS3.5 |
 | **WS3.5-RED** | `29d34c3` | Added test_ws3_review_ui.py in RED commit (asserted review records, gate storage, UI markup). | WS3.5-GREEN |
 | **WS3.5** | `4bc9f24` | Implemented reconciliation review tables in state_store.py, desktop review panel, and T2 gate in GREEN commit. | WS3.7 |
+| **WS3.9** | `e00cde6` | Added test_phase1_reconciliation_adversarial.py (prompt injection, formula injection, path traversal, malformed UTF-8). | WS3.8 |
+| **WS3.8** | `61155cc` | Implemented synthetic data generator and 50-dataset evaluation harness; 50/50 DONE, 5/5 failure scenarios handled. | Gate B2 Complete |
 
 ---
 
 ## Active Status Summary
-- **Total Passing Tests**: 183 passed (165 baseline + 4 WS3.1 + 7 WS3.2 + 4 WS3.4 + 3 WS3.5)
+- **Total Passing Tests**: 187 passed (165 baseline + 22 WS3 suite)
 - **Two-Pass Mutation Score**: 20/20 killed (Pass 1: 3/3, Pass 2: 20/20)
 - **Banned Words Status**: Zero violations across .py, .md, .html, .js, and .css files
 - **Remote Push Policy**: Authorized automatic pushes
