@@ -43,11 +43,14 @@ jobs:
           ]
           pattern = re.compile('|'.join(banned_words), re.IGNORECASE)
           ignore_dirs = {'.git', 'node_modules', '.pytest_cache', '__pycache__', 'runtime', 'dist-installer', 'win-unpacked'}
+          ignore_files = {'test_banned_words.py', 'ci.yml'}
 
           violations = []
           for root, dirs, files in os.walk('.'):
               dirs[:] = [d for d in dirs if d not in ignore_dirs]
               for f in files:
+                  if f in ignore_files:
+                      continue
                   if f.endswith(('.py', '.md', '.html', '.js')):
                       p = os.path.join(root, f)
                       with open(p, 'r', encoding='utf-8', errors='ignore') as fp:
