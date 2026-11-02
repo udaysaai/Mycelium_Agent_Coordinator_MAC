@@ -33,11 +33,13 @@
 | **WS3.1** | `7876bf2` | Implemented typed ReconciliationParameters, slot filling, and T1 TaskContract synthesis in GREEN commit. | WS3.2 |
 | **WS3.2-RED** | `39540b8` | Added test_ws3_reconciliation_engine.py in RED commit (parsing, 4 passes, formula injection, PII redaction). | WS3.2-GREEN |
 | **WS3.2** | `d5c2287` | Implemented DeterministicReconciliationEngine, PII redaction guard, and registered reconcile_accounts tool in GREEN commit. | WS3.3 |
+| **WS3.4-RED** | `07ac84f` | Added test_ws3_verifier_predicates.py in RED commit (immutability, output existence, determinism, conservation). | WS3.4-GREEN |
+| **WS3.4** | `60d5752` | Implemented verify_reconciliation out-of-band predicates in verifier.py in GREEN commit. | WS3.5 |
 
 ---
 
 ## Active Status Summary
-- **Total Passing Tests**: 176 passed (165 baseline + 4 WS3.1 + 7 WS3.2)
+- **Total Passing Tests**: 180 passed (165 baseline + 4 WS3.1 + 7 WS3.2 + 4 WS3.4)
 - **Two-Pass Mutation Score**: 20/20 killed (Pass 1: 3/3, Pass 2: 20/20)
 - **Banned Words Status**: Zero violations across .py, .md, .html, .js, and .css files
 - **Remote Push Policy**: Authorized automatic pushes
