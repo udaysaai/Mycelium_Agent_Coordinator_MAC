@@ -26,9 +26,7 @@ jobs:
 
       - name: Setup Worker Runtime
         run: |
-          python -m venv runtime/worker_python
-          icacls "runtime\worker_python" /grant "*S-1-15-2-1:(OI)(CI)(RX)" /T /Q
-          icacls "runtime\worker_python" /grant "*S-1-16-4096:(OI)(CI)(RX)" /T /Q
+          python scripts/setup_worker_runtime.py
 
       - name: Banned-Word Grep Check
         run: |

@@ -38,8 +38,13 @@ try {
         Copy-Item -Recurse $repoRuntime (Join-Path $cloneDir "runtime")
     }
     if (-not (Test-Path $cloneWorkerPy)) {
-        Write-Host "Creating fresh worker runtime at $(Split-Path $cloneWorkerPy)..."
-        python -m venv (Split-Path $cloneWorkerPy)
+        Write-Host "Setting up worker runtime in clone..."
+        Push-Location $cloneDir
+        try {
+            python scripts/setup_worker_runtime.py
+        } finally {
+            Pop-Location
+        }
     }
     # Grant Low-IL and AppContainer read permissions to temporary directory so worker probes can run
     icacls "$tempDir" /grant "*S-1-16-4096:(OI)(CI)RX" /T /Q
