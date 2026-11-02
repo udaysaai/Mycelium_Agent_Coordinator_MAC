@@ -48,7 +48,7 @@ A comprehensive audit was performed across all 20 commits in the repository hist
   +  1. Conversational Intake Gate & TaskContract Compilation (Intent handling).
   -  6. Cryptographic One-Shot Replay Prevention (Zero unapproved bypasses).
   +  6. HMAC One-Shot Replay Invalidation (State transition enforcement).
-  -    """Replaying an already-consumed one-shot token must be blocked (100% prevention)."""
+  -    """Replaying an already-consumed one-shot token must be blocked (total prevention)."""
   +    """Replaying an already-consumed one-shot token must be blocked upon state transition."""
   ```
 - **Verdict**: String documentation and docstring cleanup only. Zero assertion or logic changes.

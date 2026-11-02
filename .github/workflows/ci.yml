@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Banned-Word Grep Check
+        run: |
+          python -c "
+          import os, re, sys
+          banned_words = [
+              r'100%',
+              r'bulletproof',
+              r'robust',
+              r'fully hardened',
+              r'guaranteed',
+              r'cryptographically secure',
+              r'unbreakable',
+              r'enterprise-grade',
+              r'compliant',
+              r'compliance',
+              r'flawless'
+          ]
+          pattern = re.compile('|'.join(banned_words), re.IGNORECASE)
+          ignore_dirs = {'.git', 'node_modules', '.pytest_cache', '__pycache__', 'runtime', 'dist-installer', 'win-unpacked'}
+
+          violations = []
+          for root, dirs, files in os.walk('.'):
+              dirs[:] = [d for d in dirs if d not in ignore_dirs]
+              for f in files:
+                  if f.endswith(('.py', '.md', '.html', '.js')):
+                      p = os.path.join(root, f)
+                      with open(p, 'r', encoding='utf-8', errors='ignore') as fp:
+                          for idx, line in enumerate(fp, 1):
+                              m = pattern.findall(line)
+                              if m:
+                                  violations.append(f'{p}:{idx} {m}: {line.strip()[:100]}')
+                  elif f.endswith('.css'):
+                      p = os.path.join(root, f)
+                      with open(p, 'r', encoding='utf-8', errors='ignore') as fp:
+                          for idx, line in enumerate(fp, 1):
+                              for w in banned_words:
+                                  if w == r'100%':
+                                      continue
+                                  if re.search(r'\b' + w + r'\b', line, re.IGNORECASE):
+                                      violations.append(f'{p}:{idx} {w}: {line.strip()[:100]}')
+
+          if violations:
+              print(f'Banned word violations found ({len(violations)}):')
+              for v in violations:
+                  print(f'  {v}')
+              sys.exit(1)
+          print('Banned word check passed cleanly with zero violations.')
+          "
+
+      - name: Run Pytest Suite
+        run: |
+          pytest -v -rs

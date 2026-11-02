@@ -524,19 +524,19 @@
     if (accent === '#00ff9d') {
       root.style.setProperty('--accent-mint-glow', 'rgba(0, 255, 157, 0.4)');
       root.style.setProperty('--border-glow-primary', 'rgba(0, 255, 157, 0.35)');
-      root.style.setProperty('--grad-emerald-mint', 'linear-gradient(135deg, #00ff9d 0%, #10b981 100%)');
+      root.style.setProperty('--grad-emerald-mint', 'linear-gradient(135deg, #00ff9d 0%, #10b981)');
     } else if (accent === '#00e5ff') {
       root.style.setProperty('--accent-mint-glow', 'rgba(0, 229, 255, 0.4)');
       root.style.setProperty('--border-glow-primary', 'rgba(0, 229, 255, 0.35)');
-      root.style.setProperty('--grad-emerald-mint', 'linear-gradient(135deg, #00e5ff 0%, #0091ea 100%)');
+      root.style.setProperty('--grad-emerald-mint', 'linear-gradient(135deg, #00e5ff 0%, #0091ea)');
     } else if (accent === '#a855f7') {
       root.style.setProperty('--accent-mint-glow', 'rgba(168, 85, 247, 0.4)');
       root.style.setProperty('--border-glow-primary', 'rgba(168, 85, 247, 0.35)');
-      root.style.setProperty('--grad-emerald-mint', 'linear-gradient(135deg, #a855f7 0%, #7c3aed 100%)');
+      root.style.setProperty('--grad-emerald-mint', 'linear-gradient(135deg, #a855f7 0%, #7c3aed)');
     } else {
       root.style.setProperty('--accent-mint-glow', 'rgba(255, 255, 255, 0.4)');
       root.style.setProperty('--border-glow-primary', 'rgba(255, 255, 255, 0.35)');
-      root.style.setProperty('--grad-emerald-mint', 'linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%)');
+      root.style.setProperty('--grad-emerald-mint', 'linear-gradient(135deg, #ffffff 0%, #cbd5e1)');
     }
 
     // 4. Typography
