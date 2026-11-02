@@ -31,11 +31,13 @@
 | **WS2.4** | `e25c07c` | Two-pass mutation verification completed: 3/3 WS2 mutations killed in Pass 1, 20/20 killed in Pass 2; raw evidence recorded in evidence/mutation_check_two_pass.txt. | WS3.1 |
 | **WS3.1-RED** | `03e864e` | Added intake gate and reconciliation contract test suite in RED commit (asserted slot-filling and T1 ceiling). | WS3.1-GREEN |
 | **WS3.1** | `7876bf2` | Implemented typed ReconciliationParameters, slot filling, and T1 TaskContract synthesis in GREEN commit. | WS3.2 |
+| **WS3.2-RED** | `39540b8` | Added test_ws3_reconciliation_engine.py in RED commit (parsing, 4 passes, formula injection, PII redaction). | WS3.2-GREEN |
+| **WS3.2** | `d5c2287` | Implemented DeterministicReconciliationEngine, PII redaction guard, and registered reconcile_accounts tool in GREEN commit. | WS3.3 |
 
 ---
 
 ## Active Status Summary
-- **Total Passing Tests**: 169 passed (165 baseline + 4 WS3.1)
+- **Total Passing Tests**: 176 passed (165 baseline + 4 WS3.1 + 7 WS3.2)
 - **Two-Pass Mutation Score**: 20/20 killed (Pass 1: 3/3, Pass 2: 20/20)
 - **Banned Words Status**: Zero violations across .py, .md, .html, .js, and .css files
 - **Remote Push Policy**: Authorized automatic pushes
