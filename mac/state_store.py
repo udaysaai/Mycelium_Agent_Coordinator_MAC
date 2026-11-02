@@ -958,7 +958,7 @@ class StateStore:
         review_id = f"REV_{uuid.uuid4().hex[:12]}"
         now = time.time()
         payload = f"{review_id}:{run_id}:{exception_id}:{action}:{reviewer_notes}:{reviewer_identity}:{now}"
-        key = signing_key or self.signing_key or b"default_mac_review_key"
+        key = signing_key or getattr(self, "signing_key", None) or b"default_mac_review_key"
         row_hmac = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
         with self._get_connection() as conn:
@@ -1024,7 +1024,7 @@ class StateStore:
         reviewer_id = gate_info.get("reviewer_identity", "")
 
         payload = f"{gate_id}:{run_id}:{manifest_sha}:{tot_matched}:{tot_exceptions}:{cb_credits}:{cb_debits}:{bs_deposits}:{bs_withdrawals}:{decision}:{reviewer_id}:{now}"
-        key = signing_key or self.signing_key or b"default_mac_review_key"
+        key = signing_key or getattr(self, "signing_key", None) or b"default_mac_review_key"
         row_hmac = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
         with self._get_connection() as conn:

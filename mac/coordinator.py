@@ -29,6 +29,7 @@ from protocol import (
     ToolMatchResult,
     VerificationReceipt,
 )
+from pydantic import BaseModel, ConfigDict
 from local_daemon import LocalExecDaemon, WorkspaceSecurityError
 from mcp_gateway import (
     ExecuteShellCommandParams,

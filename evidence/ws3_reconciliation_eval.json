@@ -1,0 +1,866 @@
+{
+  "benchmark_summary": {
+    "total_datasets": 50,
+    "status_counts": {
+      "DONE": 50,
+      "FAILED": 0,
+      "UNVERIFIED": 0
+    },
+    "elapsed_seconds": 8.7,
+    "mean_latency_ms": {
+      "load": 7.88,
+      "recon": 45.32,
+      "verify": 86.27,
+      "total": 139.77
+    },
+    "metrics_by_category": {
+      "in_cashbook_only": {
+        "true_positives": 50,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "in_bank_only": {
+        "true_positives": 50,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "amount_mismatch": {
+        "true_positives": 50,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "duplicate": {
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "date_outside_period": {
+        "true_positives": 50,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "suspected_bank_charge_or_interest": {
+        "true_positives": 50,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      }
+    }
+  },
+  "datasets": [
+    {
+      "dataset_id": "dataset_2001",
+      "seed": 2001,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 3.59,
+        "recon": 42.76,
+        "verify": 66.49,
+        "total": 121.13
+      }
+    },
+    {
+      "dataset_id": "dataset_2002",
+      "seed": 2002,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 17.05,
+        "recon": 37.51,
+        "verify": 105.5,
+        "total": 160.18
+      }
+    },
+    {
+      "dataset_id": "dataset_2003",
+      "seed": 2003,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.06,
+        "recon": 34.66,
+        "verify": 64.23,
+        "total": 101.05
+      }
+    },
+    {
+      "dataset_id": "dataset_2004",
+      "seed": 2004,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 12.62,
+        "recon": 43.32,
+        "verify": 85.99,
+        "total": 142.04
+      }
+    },
+    {
+      "dataset_id": "dataset_2005",
+      "seed": 2005,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 1.88,
+        "recon": 34.31,
+        "verify": 70.88,
+        "total": 107.16
+      }
+    },
+    {
+      "dataset_id": "dataset_2006",
+      "seed": 2006,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 9.77,
+        "recon": 40.25,
+        "verify": 85.88,
+        "total": 136.1
+      }
+    },
+    {
+      "dataset_id": "dataset_2007",
+      "seed": 2007,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 1.72,
+        "recon": 33.43,
+        "verify": 85.63,
+        "total": 120.87
+      }
+    },
+    {
+      "dataset_id": "dataset_2008",
+      "seed": 2008,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 10.3,
+        "recon": 57.83,
+        "verify": 80.3,
+        "total": 148.54
+      }
+    },
+    {
+      "dataset_id": "dataset_2009",
+      "seed": 2009,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 1.71,
+        "recon": 27.96,
+        "verify": 82.89,
+        "total": 112.64
+      }
+    },
+    {
+      "dataset_id": "dataset_2010",
+      "seed": 2010,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 12.76,
+        "recon": 43.63,
+        "verify": 74.66,
+        "total": 131.23
+      }
+    },
+    {
+      "dataset_id": "dataset_2011",
+      "seed": 2011,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.17,
+        "recon": 33.89,
+        "verify": 55.12,
+        "total": 91.27
+      }
+    },
+    {
+      "dataset_id": "dataset_2012",
+      "seed": 2012,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 10.73,
+        "recon": 37.3,
+        "verify": 78.44,
+        "total": 126.55
+      }
+    },
+    {
+      "dataset_id": "dataset_2013",
+      "seed": 2013,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 1.89,
+        "recon": 33.85,
+        "verify": 60.41,
+        "total": 96.23
+      }
+    },
+    {
+      "dataset_id": "dataset_2014",
+      "seed": 2014,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 11.36,
+        "recon": 39.44,
+        "verify": 72.83,
+        "total": 123.82
+      }
+    },
+    {
+      "dataset_id": "dataset_2015",
+      "seed": 2015,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.22,
+        "recon": 64.16,
+        "verify": 78.11,
+        "total": 144.58
+      }
+    },
+    {
+      "dataset_id": "dataset_2016",
+      "seed": 2016,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 17.26,
+        "recon": 60.14,
+        "verify": 100.27,
+        "total": 177.85
+      }
+    },
+    {
+      "dataset_id": "dataset_2017",
+      "seed": 2017,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 3.53,
+        "recon": 37.39,
+        "verify": 72.62,
+        "total": 113.68
+      }
+    },
+    {
+      "dataset_id": "dataset_2018",
+      "seed": 2018,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 10.33,
+        "recon": 41.33,
+        "verify": 95.1,
+        "total": 146.88
+      }
+    },
+    {
+      "dataset_id": "dataset_2019",
+      "seed": 2019,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.1,
+        "recon": 36.82,
+        "verify": 75.52,
+        "total": 114.54
+      }
+    },
+    {
+      "dataset_id": "dataset_2020",
+      "seed": 2020,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 14.23,
+        "recon": 50.49,
+        "verify": 79.56,
+        "total": 144.42
+      }
+    },
+    {
+      "dataset_id": "dataset_2021",
+      "seed": 2021,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.23,
+        "recon": 38.57,
+        "verify": 61.3,
+        "total": 102.29
+      }
+    },
+    {
+      "dataset_id": "dataset_2022",
+      "seed": 2022,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 16.03,
+        "recon": 63.66,
+        "verify": 144.58,
+        "total": 224.43
+      }
+    },
+    {
+      "dataset_id": "dataset_2023",
+      "seed": 2023,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.13,
+        "recon": 52.13,
+        "verify": 97.86,
+        "total": 152.27
+      }
+    },
+    {
+      "dataset_id": "dataset_2024",
+      "seed": 2024,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 14.23,
+        "recon": 50.75,
+        "verify": 94.21,
+        "total": 159.34
+      }
+    },
+    {
+      "dataset_id": "dataset_2025",
+      "seed": 2025,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 4.21,
+        "recon": 33.98,
+        "verify": 70.44,
+        "total": 108.8
+      }
+    },
+    {
+      "dataset_id": "dataset_2026",
+      "seed": 2026,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 11.95,
+        "recon": 58.47,
+        "verify": 162.79,
+        "total": 233.34
+      }
+    },
+    {
+      "dataset_id": "dataset_2027",
+      "seed": 2027,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.49,
+        "recon": 50.7,
+        "verify": 90.27,
+        "total": 143.57
+      }
+    },
+    {
+      "dataset_id": "dataset_2028",
+      "seed": 2028,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 13.76,
+        "recon": 63.84,
+        "verify": 96.5,
+        "total": 174.36
+      }
+    },
+    {
+      "dataset_id": "dataset_2029",
+      "seed": 2029,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.58,
+        "recon": 37.92,
+        "verify": 72.58,
+        "total": 113.17
+      }
+    },
+    {
+      "dataset_id": "dataset_2030",
+      "seed": 2030,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 18.42,
+        "recon": 48.86,
+        "verify": 125.0,
+        "total": 192.4
+      }
+    },
+    {
+      "dataset_id": "dataset_2031",
+      "seed": 2031,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.33,
+        "recon": 43.49,
+        "verify": 66.64,
+        "total": 112.56
+      }
+    },
+    {
+      "dataset_id": "dataset_2032",
+      "seed": 2032,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 13.71,
+        "recon": 56.75,
+        "verify": 98.92,
+        "total": 169.7
+      }
+    },
+    {
+      "dataset_id": "dataset_2033",
+      "seed": 2033,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.38,
+        "recon": 37.01,
+        "verify": 77.11,
+        "total": 116.64
+      }
+    },
+    {
+      "dataset_id": "dataset_2034",
+      "seed": 2034,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 14.68,
+        "recon": 58.77,
+        "verify": 120.08,
+        "total": 193.71
+      }
+    },
+    {
+      "dataset_id": "dataset_2035",
+      "seed": 2035,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.67,
+        "recon": 45.37,
+        "verify": 74.69,
+        "total": 122.94
+      }
+    },
+    {
+      "dataset_id": "dataset_2036",
+      "seed": 2036,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 16.15,
+        "recon": 42.95,
+        "verify": 94.98,
+        "total": 154.2
+      }
+    },
+    {
+      "dataset_id": "dataset_2037",
+      "seed": 2037,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.31,
+        "recon": 37.07,
+        "verify": 65.19,
+        "total": 104.66
+      }
+    },
+    {
+      "dataset_id": "dataset_2038",
+      "seed": 2038,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 8.97,
+        "recon": 48.29,
+        "verify": 83.3,
+        "total": 140.66
+      }
+    },
+    {
+      "dataset_id": "dataset_2039",
+      "seed": 2039,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.24,
+        "recon": 33.45,
+        "verify": 62.25,
+        "total": 98.09
+      }
+    },
+    {
+      "dataset_id": "dataset_2040",
+      "seed": 2040,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 9.92,
+        "recon": 50.49,
+        "verify": 84.27,
+        "total": 144.8
+      }
+    },
+    {
+      "dataset_id": "dataset_2041",
+      "seed": 2041,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 3.23,
+        "recon": 61.19,
+        "verify": 105.81,
+        "total": 170.34
+      }
+    },
+    {
+      "dataset_id": "dataset_2042",
+      "seed": 2042,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 10.73,
+        "recon": 51.11,
+        "verify": 120.06,
+        "total": 182.13
+      }
+    },
+    {
+      "dataset_id": "dataset_2043",
+      "seed": 2043,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 3.91,
+        "recon": 47.06,
+        "verify": 98.83,
+        "total": 149.93
+      }
+    },
+    {
+      "dataset_id": "dataset_2044",
+      "seed": 2044,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 16.11,
+        "recon": 50.93,
+        "verify": 89.54,
+        "total": 156.71
+      }
+    },
+    {
+      "dataset_id": "dataset_2045",
+      "seed": 2045,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 3.17,
+        "recon": 46.88,
+        "verify": 88.68,
+        "total": 138.83
+      }
+    },
+    {
+      "dataset_id": "dataset_2046",
+      "seed": 2046,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 17.7,
+        "recon": 66.37,
+        "verify": 101.56,
+        "total": 185.76
+      }
+    },
+    {
+      "dataset_id": "dataset_2047",
+      "seed": 2047,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 2.43,
+        "recon": 35.6,
+        "verify": 67.49,
+        "total": 105.6
+      }
+    },
+    {
+      "dataset_id": "dataset_2048",
+      "seed": 2048,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 11.3,
+        "recon": 42.18,
+        "verify": 85.37,
+        "total": 138.97
+      }
+    },
+    {
+      "dataset_id": "dataset_2049",
+      "seed": 2049,
+      "format": "csv",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 1.95,
+        "recon": 34.2,
+        "verify": 63.95,
+        "total": 100.19
+      }
+    },
+    {
+      "dataset_id": "dataset_2050",
+      "seed": 2050,
+      "format": "xlsx",
+      "status": "DONE",
+      "matched_pairs": 20,
+      "exceptions_found": 5,
+      "expected_exceptions": 5,
+      "latencies_ms": {
+        "load": 10.98,
+        "recon": 47.38,
+        "verify": 78.66,
+        "total": 137.13
+      }
+    }
+  ],
+  "failure_scenarios": [
+    {
+      "scenario_id": 1,
+      "name": "worker_killed_mid_task",
+      "description": "Worker killed before output artifacts written",
+      "expected_status": "UNVERIFIED",
+      "actual_status": "UNVERIFIED",
+      "verifier_notes": "FAIL: Missing required reconciliation output artifact(s): reconciliation.xlsx, run_manifest.json",
+      "handled_correctly": true
+    },
+    {
+      "scenario_id": 2,
+      "name": "corrupted_input_file",
+      "description": "Corrupted cashbook header and non-numeric columns",
+      "expected_status": "HANDLED_CLEANLY",
+      "actual_status": "DONE",
+      "verifier_notes": "PASS: All 6 reconciliation conservation, determinism, and immutability predicates verified.",
+      "handled_correctly": true
+    },
+    {
+      "scenario_id": 3,
+      "name": "input_file_modified_mid_run",
+      "description": "Attacker appends unauthorized row after engine processing",
+      "expected_status": "UNVERIFIED",
+      "actual_status": "UNVERIFIED",
+      "verifier_notes": "FAIL: Input files tampered. SHA-256 hash changed during reconciliation.",
+      "handled_correctly": true
+    },
+    {
+      "scenario_id": 4,
+      "name": "t2_approval_denied",
+      "description": "Operator rejects review gate decision",
+      "expected_status": "REVIEWED_REJECTED",
+      "actual_status": "REVIEWED_REJECTED",
+      "verifier_notes": "Operator sign-off withheld; execution halted.",
+      "handled_correctly": true
+    },
+    {
+      "scenario_id": 5,
+      "name": "t2_approval_expired",
+      "description": "Operator approval window expires without response",
+      "expected_status": "REJECTED_TIMEOUT",
+      "actual_status": "REJECTED_TIMEOUT",
+      "verifier_notes": "Quarantine event timed out and was automatically invalidated.",
+      "handled_correctly": true
+    }
+  ]
+}

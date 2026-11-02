@@ -280,6 +280,11 @@ FULL_SUITE_TESTS = [
     "test_phase07_wiring.py",
     "test_phase07_containment.py",
     "test_phase08_containment.py",
+    "test_phase1_reconciliation_adversarial.py",
+    "test_ws3_intake_protocol.py",
+    "test_ws3_reconciliation_engine.py",
+    "test_ws3_review_ui.py",
+    "test_ws3_verifier_predicates.py",
 ]
 
 BOUNDARY_ONLY_TESTS = [
@@ -292,6 +297,11 @@ BOUNDARY_ONLY_TESTS = [
     "test_phase07_wiring.py",
     "test_phase07_containment.py",
     "test_phase08_containment.py",
+    "test_phase1_reconciliation_adversarial.py",
+    "test_ws3_intake_protocol.py",
+    "test_ws3_reconciliation_engine.py",
+    "test_ws3_review_ui.py",
+    "test_ws3_verifier_predicates.py",
 ]
 
 WS2_TESTS = [
