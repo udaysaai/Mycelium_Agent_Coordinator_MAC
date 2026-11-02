@@ -39,8 +39,9 @@
 | **WS3.5** | `4bc9f24` | Implemented reconciliation review tables in state_store.py, desktop review panel, and T2 gate in GREEN commit. | WS3.7 |
 | **WS3.9** | `e00cde6` | Added test_phase1_reconciliation_adversarial.py (prompt injection, formula injection, path traversal, malformed UTF-8). | WS3.8 |
 | **WS3.8** | `61155cc` | Implemented synthetic data generator and 50-dataset evaluation harness; 50/50 DONE, 5/5 failure scenarios handled. | WS4.2 |
-| **WS4.2** | pending | Authored docs/mac-integration.md defining the 7 binding rules of Mycelium untrusted discovery and threat matrix. | WS4.3-RED |
-| **WS4.3-RED** | pending | Added tests/test_phase1_mycelium_adapter.py covering 6 attack vectors in RED commit. | WS4.3-GREEN |
+| **WS4.2** | `a5404ec` | Authored docs/mac-integration.md defining the 7 binding rules of Mycelium untrusted discovery and threat matrix. | WS4.3-RED |
+| **WS4.3-RED** | `a5404ec` | Added tests/test_phase1_mycelium_adapter.py covering 6 attack vectors in RED commit. | WS4.3-GREEN |
+| **WS4.3** | pending | Implemented MyceliumDiscoveryAdapter and enhanced MCPGateway in GREEN commit (all 194 tests pass). | WS5.1 |
 
 ---
 

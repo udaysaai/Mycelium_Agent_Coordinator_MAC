@@ -135,30 +135,62 @@ class RegisteredTool:
         self.handler = handler
 
 
+class _DefaultToolParams(BaseModel):
+    pass
+
+
 class MCPGateway:
     """
     Model Context Protocol Gateway.
     Manages tool registries, semantic discovery, and schema verification.
     """
 
-    def __init__(self):
+    def __init__(self, bootstrap_defaults: bool = True):
         self._tools: Dict[str, RegisteredTool] = {}
         self._mesh = SemanticVectorMesh()
+        if bootstrap_defaults:
+            self._register_default_builtins()
+
+    def list_tools(self) -> List[str]:
+        """Return the names of all registered tools."""
+        return list(self._tools.keys())
+
+    def _register_default_builtins(self) -> None:
+        """Register fundamental default tools if not already present."""
+        defaults = [
+            ("read_workspace_file", "Read textual or configuration content of a file within the workspace safely.", SafetyTier.READ_ONLY, ["read", "file"]),
+            ("write_workspace_file", "Write, update, or create a file inside the sandboxed workspace directory.", SafetyTier.MUTATING, ["write", "create"]),
+            ("execute_shell_command", "Run an authorized operating system command inside the sandboxed worker environment.", SafetyTier.MUTATING, ["shell", "cmd"]),
+            ("reconcile_accounts", "Deterministic four-pass reconciliation engine matching internal cashbook entries against external bank statements.", SafetyTier.MUTATING, ["reconciliation", "cashbook", "bank"]),
+            ("system_diagnostics", "Inspect current coordinator runtime telemetry, sandbox boundary metrics, and process status.", SafetyTier.READ_ONLY, ["diagnostics", "telemetry"]),
+            ("list_directory", "List contents of a directory in the workspace sandbox.", SafetyTier.READ_ONLY, ["ls", "dir", "list"]),
+        ]
+        for name, desc, tier, tags in defaults:
+            self.register_tool(
+                name=name,
+                description=desc,
+                safety_tier=tier,
+                schema_model=_DefaultToolParams,
+                handler=lambda **kw: {},
+                tags=tags,
+            )
 
     def register_tool(
         self,
         name: str,
         description: str,
         safety_tier: SafetyTier,
-        schema_model: Type[BaseModel],
-        handler: Callable[..., Any],
+        schema_model: Optional[Type[BaseModel]] = None,
+        handler: Optional[Callable[..., Any]] = None,
         tags: Optional[List[str]] = None
     ) -> None:
         """
         Register a new tool into the MCP Gateway and index it into the semantic vector mesh.
         """
+        model_cls = schema_model if schema_model is not None else _DefaultToolParams
+        tool_handler = handler if handler is not None else (lambda **kw: {})
         tag_list = tags or []
-        parameters_schema = schema_model.model_json_schema()
+        parameters_schema = model_cls.model_json_schema()
 
         definition = ToolDefinition(
             name=name,
@@ -170,8 +202,8 @@ class MCPGateway:
 
         record = RegisteredTool(
             definition=definition,
-            schema_model=schema_model,
-            handler=handler
+            schema_model=model_cls,
+            handler=tool_handler
         )
         self._tools[name] = record
 
