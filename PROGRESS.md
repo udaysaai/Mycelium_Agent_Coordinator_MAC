@@ -42,11 +42,13 @@
 | **WS4.2** | `a5404ec` | Authored docs/mac-integration.md defining the 7 binding rules of Mycelium untrusted discovery and threat matrix. | WS4.3-RED |
 | **WS4.3-RED** | `a5404ec` | Added tests/test_phase1_mycelium_adapter.py covering 6 attack vectors in RED commit. | WS4.3-GREEN |
 | **WS4.3** | `9fdcef6` | Implemented MyceliumDiscoveryAdapter and enhanced MCPGateway in GREEN commit (all 194 tests pass). | WS5.1 |
+| **WS5.1** | pending | Published comprehensive Phase 0.8 / Gate B2 Security and Verification Report (PHASE08_REPORT.md). | WS5.2 |
+| **WS5.2** | pending | Execute fresh clone verification to evidence/fresh_clone_pytest.txt and verify zero skipped security tests. | Gate B2 Complete |
 
 ---
 
 ## Active Status Summary
-- **Total Passing Tests**: 187 passed (165 baseline + 22 WS3 suite)
+- **Total Passing Tests**: 194 passed across 17 test suites (0 failed, 0 skipped)
 - **Two-Pass Mutation Score**: 20/20 killed (Pass 1: 3/3, Pass 2: 20/20)
 - **Banned Words Status**: Zero violations across .py, .md, .html, .js, and .css files
 - **Remote Push Policy**: Authorized automatic pushes
