@@ -36,8 +36,9 @@ try {
         Write-Host "Copying repo-local worker runtime to clone..."
         Copy-Item -Recurse $repoRuntime (Join-Path $cloneDir "runtime")
     }
-    # Grant Low-IL read permissions to temporary directory so Low-IL probes can run
+    # Grant Low-IL and AppContainer read permissions to temporary directory so worker probes can run
     icacls "$tempDir" /grant "*S-1-16-4096:(OI)(CI)RX" /T /Q
+    icacls "$tempDir" /grant "*S-1-15-2-1:(OI)(CI)RX" /T /Q
 
     $commitHash = ""
     Push-Location $cloneDir
