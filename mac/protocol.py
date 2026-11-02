@@ -54,6 +54,22 @@ class TaskContractStatus(str, Enum):
     ABORTED = "ABORTED"
 
 
+class ReconciliationParameters(BaseModel):
+    """
+    Typed parameters for deterministic cashbook <-> bank statement reconciliation.
+    """
+    model_config = ConfigDict(extra="ignore", populate_by_name=True, frozen=True)
+
+    cashbook_file: str = Field(..., description="Path to cashbook ledger (CSV or XLSX).")
+    bank_statement_file: str = Field(..., description="Path to bank statement (CSV or XLSX).")
+    period_from: str = Field(..., description="Reconciliation start date (YYYY-MM-DD).")
+    period_to: str = Field(..., description="Reconciliation end date (YYYY-MM-DD).")
+    opening_balance_source: str = Field(default="cashbook", description="Source for opening balance (cashbook, bank, or manual).")
+    date_tolerance_days: int = Field(default=3, description="Date match tolerance window in days.")
+    amount_exact: bool = Field(default=True, description="Require exact amount matching.")
+    output_folder: str = Field(default="workspace_sandbox/reconciliation_output", description="Task output folder.")
+
+
 class TaskContract(BaseModel):
     """
     Immutable specification contract binding user goals to machine-checkable predicates.
@@ -79,6 +95,10 @@ class TaskContract(BaseModel):
     tierCeiling: TierLevel = Field(
         default=TierLevel.T2,
         description="Maximum privilege/safety tier permitted for this contract."
+    )
+    reconciliationParameters: Optional[ReconciliationParameters] = Field(
+        default=None,
+        description="Typed parameters if this contract represents a reconciliation task."
     )
     status: TaskContractStatus = Field(
         default=TaskContractStatus.INTAKE,

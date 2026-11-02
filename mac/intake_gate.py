@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
-from protocol import TaskContract, TaskContractStatus, TierLevel
+from protocol import TaskContract, TaskContractStatus, TierLevel, ReconciliationParameters
 
 
 class IntakeOutcome(BaseModel):
@@ -45,6 +45,11 @@ class IntakeGate:
         "write", "create", "save", "make", "dump", "export", "generate", "record"
     ]
 
+    RECONCILIATION_KEYWORDS = [
+        "reconciliation", "reconcile", "tally", "cashbook", "bank statement",
+        "जुळवणी", "मेळ", "समाधान"
+    ]
+
     def __init__(self):
         pass
 
@@ -72,7 +77,7 @@ class IntakeGate:
                 )
 
         # 2. Check general conversational questions
-        if lower_text.endswith("?") and not any(k in lower_text for k in ["file", "run", "write", "command", "check", "exec"]):
+        if lower_text.endswith("?") and not any(k in lower_text for k in ["file", "run", "write", "command", "check", "exec", "reconcile", "tally"]):
             return IntakeOutcome(
                 isConversational=True,
                 responseMessage=(
@@ -81,6 +86,92 @@ class IntakeGate:
                     "actions. Specify a concrete task or target to compile an execution contract."
                 ),
                 isReadyForExecution=False
+            )
+
+        # 3. Dedicated Reconciliation Intent Gate
+        is_recon_intent = (
+            any(k in lower_text for k in self.RECONCILIATION_KEYWORDS)
+            or "cashbook_file" in payload
+            or "bank_statement_file" in payload
+        )
+
+        if is_recon_intent:
+            cb_file = payload.get("cashbook_file")
+            bs_file = payload.get("bank_statement_file")
+            p_from = payload.get("period_from")
+            p_to = payload.get("period_to")
+
+            # Try regex parsing if not in payload
+            if not cb_file:
+                m = re.search(r"cashbook(?:_file)?[:=\s]+['\"]?([\w\-./\\]+\.[a-zA-Z0-9]+)['\"]?", raw_text, re.IGNORECASE)
+                if m:
+                    cb_file = m.group(1)
+            if not bs_file:
+                m = re.search(r"(?:bank(?:_statement)?(?:_file)?|statement)[:=\s]+['\"]?([\w\-./\\]+\.[a-zA-Z0-9]+)['\"]?", raw_text, re.IGNORECASE)
+                if m:
+                    bs_file = m.group(1)
+
+            missing_slots = []
+            if not cb_file:
+                missing_slots.append("cashbook_file (path to cashbook ledger)")
+            if not bs_file:
+                missing_slots.append("bank_statement_file (path to bank statement)")
+            if not p_from:
+                missing_slots.append("period_from (reconciliation start date YYYY-MM-DD)")
+            if not p_to:
+                missing_slots.append("period_to (reconciliation end date YYYY-MM-DD)")
+
+            if missing_slots:
+                return IntakeOutcome(
+                    isConversational=False,
+                    responseMessage=(
+                        f"Reconciliation task requires missing parameters to compile execution contract: "
+                        f"Please provide {', '.join(missing_slots)}."
+                    ),
+                    isReadyForExecution=False,
+                    missingSlots=missing_slots
+                )
+
+            # All required slots present -> synthesize contract
+            out_folder = payload.get("output_folder", "workspace_sandbox/reconciliation_output")
+            recon_params = ReconciliationParameters(
+                cashbook_file=str(cb_file),
+                bank_statement_file=str(bs_file),
+                period_from=str(p_from),
+                period_to=str(p_to),
+                opening_balance_source=payload.get("opening_balance_source", "cashbook"),
+                date_tolerance_days=int(payload.get("date_tolerance_days", 3)),
+                amount_exact=bool(payload.get("amount_exact", True)),
+                output_folder=str(out_folder)
+            )
+
+            contract = TaskContract(
+                goal=raw_text,
+                constraints={
+                    "timeoutSeconds": 60.0,
+                    "sandboxOnly": True,
+                    "networkAllowed": False,
+                    "shellAllowed": False,
+                    "readOnlyInput": True,
+                    "writeOnlyOutput": True,
+                    "outputFolder": out_folder
+                },
+                successPredicate={
+                    "type": "reconciliation_verification",
+                    "output_folder": out_folder,
+                    "cashbook_file": str(cb_file),
+                    "bank_statement_file": str(bs_file)
+                },
+                tierCeiling=TierLevel.T1,
+                reconciliationParameters=recon_params,
+                status=TaskContractStatus.ACTIVE
+            )
+
+            return IntakeOutcome(
+                isConversational=False,
+                responseMessage=f"Compiled Reconciliation TaskContract (ID: {contract.contractId[:8]}). Ready for execution.",
+                isReadyForExecution=True,
+                contract=contract
             )
 
         # 3. Slot-filling inspection for file creation/mutation intents
