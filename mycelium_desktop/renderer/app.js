@@ -2809,3 +2809,121 @@
 
   document.addEventListener('DOMContentLoaded', init);
 })();
+
+
+// ============================================================================
+// Reconciliation Review UI & Exception Handling
+// ============================================================================
+
+let currentReconciliationData = null;
+
+function renderReconciliationExceptions(exceptions, summary, manifestSha) {
+  currentReconciliationData = { exceptions, summary, manifestSha };
+  const panel = document.getElementById('reconciliation-review-panel');
+  if (!panel) return;
+
+  if (summary) {
+    const matchedEl = document.getElementById('recon-stat-matched');
+    const excEl = document.getElementById('recon-stat-exceptions');
+    const cbCrEl = document.getElementById('recon-stat-cb-credits');
+    const bsDepEl = document.getElementById('recon-stat-bs-deposits');
+    if (matchedEl) matchedEl.textContent = summary.total_matched_pairs || 0;
+    if (excEl) excEl.textContent = summary.total_exceptions || 0;
+    if (cbCrEl) cbCrEl.textContent = '₹' + (summary.cashbook_total_credits || '0.00');
+    if (bsDepEl) bsDepEl.textContent = '₹' + (summary.bank_total_deposits || '0.00');
+  }
+
+  const hashEl = document.getElementById('recon-manifest-hash');
+  if (hashEl && manifestSha) {
+    hashEl.textContent = manifestSha.substring(0, 16) + '...';
+  }
+
+  const tbody = document.getElementById('reconciliation-exceptions-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  (exceptions || []).forEach(exc => {
+    const tr = document.createElement('tr');
+    tr.id = `recon-row-${exc.exception_id}`;
+    tr.innerHTML = `
+      <td><code>${exc.exception_id}</code></td>
+      <td><span class="badge badge-${exc.category}">${exc.category}</span></td>
+      <td>${exc.source_ledger || 'both'}</td>
+      <td>${exc.date || 'N/A'}</td>
+      <td><code>${exc.reference || 'N/A'}</code></td>
+      <td title="${exc.narration || ''}">${(exc.narration || '').substring(0, 40)}</td>
+      <td><strong>₹${exc.amount || exc.cashbook_amount || '0.00'}</strong></td>
+      <td>
+        <button type="button" class="btn-action-accept" onclick="submitReconciliationReview('${exc.exception_id}', 'ACCEPT')">Accept</button>
+        <button type="button" class="btn-action-flag" onclick="submitReconciliationReview('${exc.exception_id}', 'FLAG')">Flag</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  panel.classList.remove('hidden');
+}
+
+function submitReconciliationReview(exceptionId, action, notes) {
+  notes = notes || (action === 'ACCEPT' ? 'Accepted by operator' : 'Flagged for further audit');
+  const runId = (currentReconciliationData && currentReconciliationData.summary) ? currentReconciliationData.summary.period_from : 'active_run';
+  
+  if (window.electronAPI && window.electronAPI.invoke) {
+    window.electronAPI.invoke('submit-reconciliation-review', {
+      run_id: runId,
+      exception_id: exceptionId,
+      action: action,
+      reviewer_notes: notes,
+      reviewer_identity: 'Operator'
+    }).then(res => {
+      const row = document.getElementById(`recon-row-${exceptionId}`);
+      if (row) {
+        row.style.opacity = '0.6';
+        const actionCell = row.cells[row.cells.length - 1];
+        if (actionCell) actionCell.innerHTML = `<span class="status-done">${action}ED</span>`;
+      }
+    }).catch(err => {
+      console.error('Failed to submit review:', err);
+    });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const closeBtn = document.getElementById('close-recon-panel-btn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      const panel = document.getElementById('reconciliation-review-panel');
+      if (panel) panel.classList.add('hidden');
+    });
+  }
+
+  const markReviewedBtn = document.getElementById('btn-mark-reconciliation-reviewed');
+  if (markReviewedBtn) {
+    markReviewedBtn.addEventListener('click', () => {
+      if (!currentReconciliationData) return;
+      const s = currentReconciliationData.summary || {};
+      const payload = {
+        run_id: s.period_from || 'active_run',
+        manifest_sha256: currentReconciliationData.manifestSha || '',
+        total_matched: s.total_matched_pairs || 0,
+        total_exceptions: s.total_exceptions || 0,
+        cashbook_total_credits: s.cashbook_total_credits || '0',
+        cashbook_total_debits: s.cashbook_total_debits || '0',
+        bank_total_deposits: s.bank_total_deposits || '0',
+        bank_total_withdrawals: s.bank_total_withdrawals || '0',
+        decision: 'REVIEWED_APPROVED',
+        reviewer_identity: 'Operator'
+      };
+
+      if (window.electronAPI && window.electronAPI.invoke) {
+        window.electronAPI.invoke('submit-reconciliation-gate', payload).then(() => {
+          alert('Reconciliation successfully marked as reviewed.');
+          const panel = document.getElementById('reconciliation-review-panel');
+          if (panel) panel.classList.add('hidden');
+        }).catch(err => {
+          console.error('Failed to submit reconciliation gate:', err);
+        });
+      }
+    });
+  }
+});

@@ -1059,6 +1059,30 @@ class SupervisorDaemon:
                 pass
             return {"status": "OK", "pending": pending}
 
+        if msg_type == "SUBMIT_RECONCILIATION_REVIEW":
+            run_id = msg.get("run_id", "")
+            exception_id = msg.get("exception_id", "")
+            action = msg.get("action", "")
+            notes = msg.get("reviewer_notes", "")
+            identity = msg.get("reviewer_identity", "Operator")
+            review_id = self.state_store.save_reconciliation_review(
+                run_id=run_id,
+                exception_id=exception_id,
+                action=action,
+                reviewer_notes=notes,
+                reviewer_identity=identity,
+                signing_key=self._signing_key
+            )
+            return {"status": "OK", "review_id": review_id}
+
+        if msg_type == "SUBMIT_RECONCILIATION_GATE":
+            gate_info = msg.get("gate_info", msg)
+            gate_id = self.state_store.save_reconciliation_gate_decision(
+                gate_info=gate_info,
+                signing_key=self._signing_key
+            )
+            return {"status": "OK", "gate_id": gate_id}
+
         if msg_type == "APPROVE_ACTION":
             qid = msg.get("quarantine_id", "")
             notes = msg.get("operator_notes", "Operator sign-off")

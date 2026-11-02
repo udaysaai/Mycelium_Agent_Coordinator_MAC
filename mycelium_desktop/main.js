@@ -1471,6 +1471,58 @@ ipcMain.on('hol-decision', (_event, { quarantineId, approved }) => {
   }
 });
 
+ipcMain.handle('submit-reconciliation-review', async (_event, payload) => {
+  if (uiPipeClient && !uiPipeClient.destroyed && activeUiSecret) {
+    return new Promise((resolve, reject) => {
+      const msg = {
+        type: 'SUBMIT_RECONCILIATION_REVIEW',
+        secret: activeUiSecret,
+        ...payload
+      };
+      const onData = (chunk) => {
+        try {
+          const resp = JSON.parse(chunk.toString('utf-8').trim());
+          uiPipeClient.off('data', onData);
+          resolve(resp);
+        } catch (e) {}
+      };
+      uiPipeClient.on('data', onData);
+      uiPipeClient.write(JSON.stringify(msg) + '\n');
+      setTimeout(() => {
+        uiPipeClient.off('data', onData);
+        resolve({ status: 'OK', simulated: true });
+      }, 1500);
+    });
+  }
+  return { status: 'OK', simulated: true };
+});
+
+ipcMain.handle('submit-reconciliation-gate', async (_event, payload) => {
+  if (uiPipeClient && !uiPipeClient.destroyed && activeUiSecret) {
+    return new Promise((resolve, reject) => {
+      const msg = {
+        type: 'SUBMIT_RECONCILIATION_GATE',
+        secret: activeUiSecret,
+        gate_info: payload
+      };
+      const onData = (chunk) => {
+        try {
+          const resp = JSON.parse(chunk.toString('utf-8').trim());
+          uiPipeClient.off('data', onData);
+          resolve(resp);
+        } catch (e) {}
+      };
+      uiPipeClient.on('data', onData);
+      uiPipeClient.write(JSON.stringify(msg) + '\n');
+      setTimeout(() => {
+        uiPipeClient.off('data', onData);
+        resolve({ status: 'OK', simulated: true });
+      }, 1500);
+    });
+  }
+  return { status: 'OK', simulated: true };
+});
+
 ipcMain.handle('get-status', async () => {
   if (uiPipeClient && !uiPipeClient.destroyed && activeUiSecret) {
     return new Promise((resolve) => {

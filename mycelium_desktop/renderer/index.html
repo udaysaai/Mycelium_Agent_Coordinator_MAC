@@ -1256,6 +1256,59 @@
     </div>
   </div>
 
+
+    <!-- Reconciliation Audit & Review Modal Panel -->
+    <div id="reconciliation-review-panel" class="reconciliation-review-panel hidden" role="dialog" aria-label="Reconciliation Review">
+      <div class="recon-panel-header">
+        <div class="recon-title-wrap">
+          <span class="recon-badge">PHASE 1 LEDGER AUDIT</span>
+          <h3>Cashbook ↔ Bank Statement Reconciliation Review</h3>
+          <p id="recon-summary-line">Audit discrepancies, flag exceptions, or approve final reconciliation gate.</p>
+        </div>
+        <button type="button" id="close-recon-panel-btn" class="recon-close-btn" aria-label="Close Panel">&times;</button>
+      </div>
+
+      <div class="recon-stats-cards">
+        <div class="recon-stat-card"><span class="stat-label">Matched Pairs</span><span id="recon-stat-matched" class="stat-value">0</span></div>
+        <div class="recon-stat-card"><span class="stat-label">Exceptions</span><span id="recon-stat-exceptions" class="stat-value">0</span></div>
+        <div class="recon-stat-card"><span class="stat-label">Cashbook Credits</span><span id="recon-stat-cb-credits" class="stat-value">₹0.00</span></div>
+        <div class="recon-stat-card"><span class="stat-label">Bank Deposits</span><span id="recon-stat-bs-deposits" class="stat-value">₹0.00</span></div>
+      </div>
+
+      <div class="recon-exceptions-wrap">
+        <h4>Exceptions & Discrepancies</h4>
+        <div class="recon-table-scroll">
+          <table id="reconciliation-exceptions-table" class="reconciliation-exceptions-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Category</th>
+                <th>Ledger</th>
+                <th>Date</th>
+                <th>Reference</th>
+                <th>Narration</th>
+                <th>Amount (₹)</th>
+                <th>Review Action</th>
+              </tr>
+            </thead>
+            <tbody id="reconciliation-exceptions-tbody">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="recon-panel-footer">
+        <div class="recon-manifest-hash-wrap">
+          <span class="manifest-label">Run Manifest Hash:</span>
+          <span id="recon-manifest-hash" class="manifest-hash">None</span>
+        </div>
+        <button type="button" id="btn-mark-reconciliation-reviewed" class="btn-mark-reconciliation-reviewed">
+          Mark Reconciliation Reviewed
+        </button>
+      </div>
+    </div>
+
   <script src="app.js"></script>
 </body>
 </html>

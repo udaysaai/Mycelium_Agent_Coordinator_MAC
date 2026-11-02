@@ -16,6 +16,7 @@ import json
 import sqlite3
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -151,6 +152,35 @@ class StateStore:
                 CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status);
                 CREATE INDEX IF NOT EXISTS idx_quarantines_status ON quarantines(status);
                 CREATE INDEX IF NOT EXISTS idx_receipts_contract ON receipts(contract_id);
+                CREATE TABLE IF NOT EXISTS reconciliation_reviews (
+                    review_id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    exception_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    reviewer_notes TEXT,
+                    reviewer_identity TEXT,
+                    created_at REAL NOT NULL,
+                    row_hmac TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS reconciliation_review_gates (
+                    gate_id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    manifest_sha256 TEXT NOT NULL,
+                    total_matched INTEGER NOT NULL,
+                    total_exceptions INTEGER NOT NULL,
+                    cashbook_total_credits TEXT NOT NULL,
+                    cashbook_total_debits TEXT NOT NULL,
+                    bank_total_deposits TEXT NOT NULL,
+                    bank_total_withdrawals TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    reviewer_identity TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    row_hmac TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_recon_reviews_run ON reconciliation_reviews(run_id);
+                CREATE INDEX IF NOT EXISTS idx_recon_gates_run ON reconciliation_review_gates(run_id);
             """)
 
             # Ensure backward-compatible schema evolution if tables already existed
@@ -906,3 +936,141 @@ class StateStore:
                 return False
 
         return True
+
+
+    # -------------------------------------------------------------------------
+    # Reconciliation Review & Audit Records
+    # -------------------------------------------------------------------------
+
+    def save_reconciliation_review(
+        self,
+        run_id: str,
+        exception_id: str,
+        action: str,
+        reviewer_notes: str = "",
+        reviewer_identity: str = "",
+        signing_key: Optional[bytes] = None
+    ) -> str:
+        """
+        Record an immutable human review decision (ACCEPT or FLAG) for an exception.
+        Reviewer decisions never alter underlying computed reconciliation figures.
+        """
+        review_id = f"REV_{uuid.uuid4().hex[:12]}"
+        now = time.time()
+        payload = f"{review_id}:{run_id}:{exception_id}:{action}:{reviewer_notes}:{reviewer_identity}:{now}"
+        key = signing_key or self.signing_key or b"default_mac_review_key"
+        row_hmac = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO reconciliation_reviews (
+                    review_id, run_id, exception_id, action,
+                    reviewer_notes, reviewer_identity, created_at, row_hmac
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                review_id, run_id, exception_id, action,
+                reviewer_notes, reviewer_identity, now, row_hmac
+            ))
+            conn.commit()
+        return review_id
+
+    def get_reconciliation_reviews(self, run_id: str) -> List[Dict[str, Any]]:
+        """Fetch all immutable review records for a given reconciliation run."""
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT review_id, run_id, exception_id, action,
+                       reviewer_notes, reviewer_identity, created_at, row_hmac
+                FROM reconciliation_reviews
+                WHERE run_id = ?
+                ORDER BY created_at ASC
+            """, (run_id,))
+            rows = cur.fetchall()
+            return [
+                {
+                    "review_id": r[0],
+                    "run_id": r[1],
+                    "exception_id": r[2],
+                    "action": r[3],
+                    "reviewer_notes": r[4],
+                    "reviewer_identity": r[5],
+                    "created_at": r[6],
+                    "row_hmac": r[7]
+                }
+                for r in rows
+            ]
+
+    def save_reconciliation_gate_decision(
+        self,
+        gate_info: Dict[str, Any],
+        signing_key: Optional[bytes] = None
+    ) -> str:
+        """
+        Record a T2-style final 'Mark Reconciliation Reviewed' sign-off gate event.
+        Binds totals, matched/exception counts, and run manifest SHA-256 hash.
+        """
+        gate_id = f"GATE_{uuid.uuid4().hex[:12]}"
+        now = time.time()
+        run_id = gate_info.get("run_id", "")
+        manifest_sha = gate_info.get("manifest_sha256", "")
+        tot_matched = int(gate_info.get("total_matched", 0))
+        tot_exceptions = int(gate_info.get("total_exceptions", 0))
+        cb_credits = str(gate_info.get("cashbook_total_credits", "0"))
+        cb_debits = str(gate_info.get("cashbook_total_debits", "0"))
+        bs_deposits = str(gate_info.get("bank_total_deposits", "0"))
+        bs_withdrawals = str(gate_info.get("bank_total_withdrawals", "0"))
+        decision = gate_info.get("decision", "REVIEWED_APPROVED")
+        reviewer_id = gate_info.get("reviewer_identity", "")
+
+        payload = f"{gate_id}:{run_id}:{manifest_sha}:{tot_matched}:{tot_exceptions}:{cb_credits}:{cb_debits}:{bs_deposits}:{bs_withdrawals}:{decision}:{reviewer_id}:{now}"
+        key = signing_key or self.signing_key or b"default_mac_review_key"
+        row_hmac = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO reconciliation_review_gates (
+                    gate_id, run_id, manifest_sha256, total_matched, total_exceptions,
+                    cashbook_total_credits, cashbook_total_debits, bank_total_deposits,
+                    bank_total_withdrawals, decision, reviewer_identity, created_at, row_hmac
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                gate_id, run_id, manifest_sha, tot_matched, tot_exceptions,
+                cb_credits, cb_debits, bs_deposits, bs_withdrawals,
+                decision, reviewer_id, now, row_hmac
+            ))
+            conn.commit()
+        return gate_id
+
+    def get_reconciliation_gate_decision(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch the latest review gate decision for a reconciliation run."""
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT gate_id, run_id, manifest_sha256, total_matched, total_exceptions,
+                       cashbook_total_credits, cashbook_total_debits, bank_total_deposits,
+                       bank_total_withdrawals, decision, reviewer_identity, created_at, row_hmac
+                FROM reconciliation_review_gates
+                WHERE run_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (run_id,))
+            r = cur.fetchone()
+            if not r:
+                return None
+            return {
+                "gate_id": r[0],
+                "run_id": r[1],
+                "manifest_sha256": r[2],
+                "total_matched": r[3],
+                "total_exceptions": r[4],
+                "cashbook_total_credits": r[5],
+                "cashbook_total_debits": r[6],
+                "bank_total_deposits": r[7],
+                "bank_total_withdrawals": r[8],
+                "decision": r[9],
+                "reviewer_identity": r[10],
+                "created_at": r[11],
+                "row_hmac": r[12]
+            }
