@@ -30,11 +30,16 @@ try {
         throw "git clone failed with exit code $LASTEXITCODE"
     }
 
-    # If repo-local worker runtime exists, copy it to clone and grant Low-IL read permissions
+    # If repo-local worker runtime exists, copy it to clone, otherwise create fresh venv
     $repoRuntime = Join-Path $repoDir "runtime"
+    $cloneWorkerPy = Join-Path $cloneDir "runtime\worker_python\python.exe"
     if (Test-Path $repoRuntime) {
         Write-Host "Copying repo-local worker runtime to clone..."
         Copy-Item -Recurse $repoRuntime (Join-Path $cloneDir "runtime")
+    }
+    if (-not (Test-Path $cloneWorkerPy)) {
+        Write-Host "Creating fresh worker runtime at $(Split-Path $cloneWorkerPy)..."
+        python -m venv (Split-Path $cloneWorkerPy)
     }
     # Grant Low-IL and AppContainer read permissions to temporary directory so worker probes can run
     icacls "$tempDir" /grant "*S-1-16-4096:(OI)(CI)RX" /T /Q

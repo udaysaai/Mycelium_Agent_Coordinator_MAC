@@ -44,7 +44,8 @@
 | **WS4.3** | `9fdcef6` | Implemented MyceliumDiscoveryAdapter and enhanced MCPGateway in GREEN commit (all 194 tests pass). | WS5.1 |
 | **WS5.1** | `4312cba` | Published comprehensive Phase 0.8 / Gate B2 Security and Verification Report (PHASE08_REPORT.md). | WS5.2 |
 | **WS5.2** | `b4163f6` | Fresh clone check verified 194/194 tests passing with 0 skipped tests (evidence/fresh_clone_pytest.txt SHA-256: AF822F5FE61BB5DBF9071551E354000727890C0F2176FBA38B48914DF86CD0B8). | CI-FIX |
-| **CI-FIX** | `3830245` | Excluded test_banned_words.py and ci.yml from CI inline grep check to prevent self-flagging. | Gate B2 Complete |
+| **CI-FIX** | `3830245` | Excluded test_banned_words.py and ci.yml from CI inline grep check to prevent self-flagging. | CI-RUNTIME-FIX |
+| **CI-RUNTIME-FIX** | pending | Added worker runtime setup in CI workflow and fresh clone script to support worker isolation tests. | Gate B2 Complete |
 
 ---
 
