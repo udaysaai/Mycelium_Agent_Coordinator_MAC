@@ -1,6 +1,10 @@
 # scripts/fresh_clone_check.ps1
-# Phase 0.7 Reproducible Fresh-Clone Verification Script
+# Phase 0.7 / Gate A Reproducible Fresh-Clone Verification Script
 # Writes un-truncated UTF-8 output directly at capture time.
+
+param(
+    [string]$EvidenceFileName = "gate_a_fresh_clone.txt"
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -10,7 +14,7 @@ if (-not (Test-Path $evidenceDir)) {
     New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null
 }
 
-$evidenceFile = Join-Path $evidenceDir "fresh_clone_pytest.txt"
+$evidenceFile = Join-Path $evidenceDir $EvidenceFileName
 $tempBase = [System.IO.Path]::GetTempPath()
 $uniqueDir = "mac_fresh_check_" + [System.Guid]::NewGuid().ToString("N")
 $tempDir = Join-Path $tempBase $uniqueDir
