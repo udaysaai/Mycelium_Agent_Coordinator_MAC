@@ -28,12 +28,13 @@
 | **WS2.1** | `059dc96` | Probed host capabilities: AppContainer supported, WSL2 active, Windows Sandbox unavailable; recorded raw JSON in evidence/capability_probe.json. | WS2.2 |
 | **WS2.2** | `a2cd7a6` | Committed tests/test_phase08_containment.py in RED commit (failed on W1 canary read, W3 network connect, and worker pipe ACL). | WS2.3 |
 | **WS2.3** | `afc835f` | Implemented AppContainer worker isolation with zero network capabilities, package ACLs, and worker pipe DACL (all 165 tests passing). | WS2.4 |
+| **WS2.4** | `e25c07c` | Two-pass mutation verification completed: 3/3 WS2 mutations killed in Pass 1, 20/20 killed in Pass 2; raw evidence recorded in evidence/mutation_check_two_pass.txt. | Gate B1 Complete |
 
 ---
 
 ## Active Status Summary
 - **Total Passing Tests**: 165 passed
-- **Two-Pass Mutation Score**: 17/17 killed
+- **Two-Pass Mutation Score**: 20/20 killed (Pass 1: 3/3, Pass 2: 20/20)
 - **Banned Words Status**: Zero violations across .py, .md, .html, .js, and .css files
 - **Remote Push Policy**: Rule R9 strictly enforced (no remote pushes; manual push command provided)
 
