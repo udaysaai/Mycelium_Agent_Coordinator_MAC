@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """
-scripts/capability_probe.py - Windows System Security Capability Probe (Phase 0.7)
-Probes OS edition, elevation/admin state, AppContainer profile creation,
-AppContainer process launch, CPython DLL loading inside AppContainer,
-Restricted Token / Low Integrity APIs, WSL2, and Windows Sandbox.
-Outputs structured JSON to stdout and evidence/capability_probe.json.
+scripts/capability_probe.py - Windows System Security Capability Probe (Phase 0.8 / WS2)
+Probes:
+- OS edition, build, elevation/admin state
+- AppContainer API availability (CreateAppContainerProfile, DeriveAppContainerSidFromAppContainerName)
+- PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES support
+- Low Privilege AppContainer (LPAC) support
+- CPython execution inside AppContainer with package ACLs
+- WSL2 availability and status
+- Windows Sandbox availability
+- Windows Defender Application Guard / Hyper-V container presence
+
+Emits structured JSON to stdout and evidence/capability_probe.json.
 """
 
 from __future__ import annotations
@@ -19,13 +26,19 @@ import sys
 from pathlib import Path
 
 
-def probe_appcontainer_execution() -> dict:
+def probe_appcontainer_capabilities() -> dict:
     res = {
-        "can_call_create_appcontainer_profile": False,
+        "has_create_appcontainer_profile": False,
+        "has_derive_appcontainer_sid": False,
+        "has_derive_restricted_appcontainer_sid": False,
+        "has_delete_appcontainer_profile": False,
+        "has_proc_thread_attribute_security_capabilities": False,
+        "profile_creation_succeeded": False,
         "profile_error": None,
+        "appcontainer_sid": None,
         "can_launch_appcontainer_process": False,
         "launch_error": None,
-        "cpython_dll_load_status": None,
+        "cpython_execution_status": None,
         "cpython_exit_code": None,
         "notes": []
     }
@@ -38,13 +51,21 @@ def probe_appcontainer_execution() -> dict:
         res["profile_error"] = f"Failed to load userenv/kernel32/advapi32: {e}"
         return res
 
-    container_name = "MAC_SecurityProbe_AppContainer"
-    display_name = "MAC Probe AppContainer"
-    desc = "Probe for Windows AppContainer capability in non-elevated Python"
+    res["has_create_appcontainer_profile"] = hasattr(userenv, "CreateAppContainerProfile")
+    res["has_derive_appcontainer_sid"] = hasattr(userenv, "DeriveAppContainerSidFromAppContainerName")
+    res["has_derive_restricted_appcontainer_sid"] = hasattr(userenv, "DeriveRestrictedAppContainerSidFromAppContainerSidAndRestrictedName")
+    res["has_delete_appcontainer_profile"] = hasattr(userenv, "DeleteAppContainerProfile")
+
+    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x20009
+    size = ctypes.c_size_t(0)
+    init_res = kernel32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size))
+    res["has_proc_thread_attribute_security_capabilities"] = (size.value > 0 or init_res != 0)
+
+    container_name = "MAC_WS2_CapabilityProbe_AC"
+    display_name = "MAC Probe AppContainer WS2"
+    desc = "Probe for Windows AppContainer capability in MAC"
 
     p_sid = ctypes.c_void_p()
-    # HRESULT CreateAppContainerProfile
-    # E_ACCESSDENIED = 0x80070005, S_OK = 0, HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) = 0x800700b7
     try:
         hr = userenv.CreateAppContainerProfile(
             ctypes.c_wchar_p(container_name),
@@ -54,9 +75,8 @@ def probe_appcontainer_execution() -> dict:
             0,
             ctypes.byref(p_sid)
         )
-        # 0x800700b7 = already exists
         if hr == 0 or (hr & 0xFFFFFFFF) == 0x800700B7:
-            res["can_call_create_appcontainer_profile"] = True
+            res["profile_creation_succeeded"] = True
             if hr != 0:
                 userenv.DeriveAppContainerSidFromAppContainerName(
                     ctypes.c_wchar_p(container_name),
@@ -67,16 +87,15 @@ def probe_appcontainer_execution() -> dict:
     except Exception as e:
         res["profile_error"] = str(e)
 
-    if not res["can_call_create_appcontainer_profile"] or not p_sid:
+    if not res["profile_creation_succeeded"] or not p_sid:
         res["notes"].append("AppContainer profile creation failed or denied.")
         return res
 
-    # Convert SID to string for record
     str_sid = ctypes.c_wchar_p()
     advapi32.ConvertSidToStringSidW(p_sid, ctypes.byref(str_sid))
-    res["appcontainer_sid"] = str_sid.value
+    sid_str = str_sid.value
+    res["appcontainer_sid"] = sid_str
 
-    # Test launching a basic process with SECURITY_CAPABILITIES
     class SECURITY_CAPABILITIES(ctypes.Structure):
         _fields_ = [
             ("AppContainerSid", ctypes.c_void_p),
@@ -91,11 +110,6 @@ def probe_appcontainer_execution() -> dict:
     sec_caps.CapabilityCount = 0
     sec_caps.Reserved = 0
 
-    # Probe PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES (0x20009)
-    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x20009
-    size = ctypes.c_size_t(0)
-    kernel32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size))
-
     attr_list = ctypes.create_string_buffer(size.value)
     if kernel32.InitializeProcThreadAttributeList(attr_list, 1, 0, ctypes.byref(size)):
         if kernel32.UpdateProcThreadAttribute(
@@ -107,7 +121,6 @@ def probe_appcontainer_execution() -> dict:
             None,
             None
         ):
-            # Attempt to launch cmd.exe /c exit 0 or python.exe
             class STARTUPINFOW(ctypes.Structure):
                 _fields_ = [
                     ('cb', ctypes.wintypes.DWORD),
@@ -149,9 +162,17 @@ def probe_appcontainer_execution() -> dict:
             si.lpAttributeList = ctypes.cast(attr_list, ctypes.c_void_p)
             pi = PROCESS_INFORMATION()
 
+            # Test execution with repo-local worker runtime
+            runtime_dir = Path(__file__).resolve().parent.parent / "runtime" / "worker_python"
+            worker_py = runtime_dir / "python.exe"
+            if worker_py.exists():
+                subprocess.run(["icacls", str(runtime_dir), "/grant", f"*{sid_str}:(OI)(CI)(RX)"], capture_output=True)
+                target_exe = worker_py
+            else:
+                target_exe = Path(sys.executable)
+
             EXTENDED_STARTUPINFO_PRESENT = 0x00080000
-            # Test launching python.exe -c "import sys; sys.exit(0)"
-            py_cmd = f'"{sys.executable}" -c "import sys; sys.exit(0)"'
+            py_cmd = f'"{target_exe}" -c "import sys; sys.exit(0)"'
             success = kernel32.CreateProcessW(
                 None,
                 ctypes.c_wchar_p(py_cmd),
@@ -173,17 +194,21 @@ def probe_appcontainer_execution() -> dict:
                 kernel32.CloseHandle(pi.hProcess)
                 kernel32.CloseHandle(pi.hThread)
 
-                # Standard CPython fails with 0xc0000142 (STATUS_DLL_INIT_FAILED)
-                # because standard python312.dll and Windows runtime lack package ACLs
-                if exit_code.value == 0xC0000142:
-                    res["cpython_dll_load_status"] = "STATUS_DLL_INIT_FAILED (0xc0000142) - CPython DLL lacks package permissions"
-                elif exit_code.value == 0:
-                    res["cpython_dll_load_status"] = "SUCCESS"
+                if exit_code.value == 0:
+                    res["cpython_execution_status"] = "SUCCESS"
+                elif exit_code.value == 0xC0000135:
+                    res["cpython_execution_status"] = "STATUS_DLL_NOT_FOUND (0xc0000135)"
+                elif exit_code.value == 0xC0000142:
+                    res["cpython_execution_status"] = "STATUS_DLL_INIT_FAILED (0xc0000142)"
                 else:
-                    res["cpython_dll_load_status"] = f"EXIT_CODE_{hex(exit_code.value)}"
+                    res["cpython_execution_status"] = f"EXIT_CODE_{hex(exit_code.value)}"
             else:
                 err = kernel32.GetLastError()
                 res["launch_error"] = f"CreateProcessW failed with error {err}"
+
+            if worker_py.exists():
+                subprocess.run(["icacls", str(runtime_dir), "/remove", f"*{sid_str}"], capture_output=True)
+
         kernel32.DeleteProcThreadAttributeList(attr_list)
 
     # Clean up AppContainer profile
@@ -207,20 +232,18 @@ def probe_capabilities() -> dict:
         "service_pack": win_ver.service_pack
     }
 
+    try:
+        results["windows_edition"] = getattr(platform, "win32_edition", lambda: "Unknown")()
+    except Exception:
+        results["windows_edition"] = "Unknown"
+
     # 1. Admin / Elevation Check
     try:
         results["is_admin"] = bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         results["is_admin"] = False
 
-    # 2. AppContainer API Check (userenv.dll / kernel32.dll)
-    try:
-        userenv = ctypes.windll.userenv
-        results["has_create_appcontainer_profile"] = hasattr(userenv, "CreateAppContainerProfile")
-    except Exception:
-        results["has_create_appcontainer_profile"] = False
-
-    # 3. Restricted Token & Low Integrity APIs (advapi32.dll)
+    # 2. advapi32 Token APIs
     try:
         advapi32 = ctypes.windll.advapi32
         results["has_create_restricted_token"] = hasattr(advapi32, "CreateRestrictedToken")
@@ -229,24 +252,34 @@ def probe_capabilities() -> dict:
         results["has_create_restricted_token"] = False
         results["has_set_token_information"] = False
 
-    # 4. AppContainer Execution Probe
-    results["appcontainer_probe"] = probe_appcontainer_execution()
+    # 3. AppContainer & LPAC Capabilities Probe
+    results["appcontainer_probe"] = probe_appcontainer_capabilities()
 
-    # 5. WSL2 Check
+    # 4. WSL2 Check
     try:
-        res = subprocess.run(["wsl.exe", "--status"], capture_output=True, text=True, timeout=5)
+        res = subprocess.run(["wsl.exe", "--status"], capture_output=True, timeout=5)
         results["wsl_available"] = (res.returncode == 0)
-        results["wsl_status"] = res.stdout.strip().replace("\r\n", " ")[:120]
+        try:
+            results["wsl_status"] = res.stdout.decode("utf-16le", errors="ignore").strip().replace("\r\n", " ")[:120]
+        except Exception:
+            results["wsl_status"] = res.stdout.decode("utf-8", errors="ignore").strip()[:120]
     except Exception as e:
         results["wsl_available"] = False
         results["wsl_status"] = str(e)
 
-    # 6. Windows Sandbox Check
+    # 5. Windows Sandbox Check
     try:
         res = subprocess.run(["where.exe", "WindowsSandbox.exe"], capture_output=True, text=True, timeout=5)
         results["windows_sandbox_executable"] = (res.returncode == 0)
     except Exception:
         results["windows_sandbox_executable"] = False
+
+    # 6. Hyper-V / Host Compute Service Check
+    results["hyperv_container_support"] = {
+        "vmcompute_exe_present": os.path.exists(r"C:\Windows\System32\vmcompute.exe"),
+        "hcs_dll_present": os.path.exists(r"C:\Windows\System32\hcs.dll"),
+        "wdagtool_exe_present": os.path.exists(r"C:\Windows\System32\wdagtool.exe")
+    }
 
     return results
 

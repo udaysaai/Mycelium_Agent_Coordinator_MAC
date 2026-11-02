@@ -7,21 +7,31 @@
     "platform": 2,
     "service_pack": ""
   },
+  "windows_edition": "CoreSingleLanguage",
   "is_admin": false,
-  "has_create_appcontainer_profile": true,
   "has_create_restricted_token": true,
   "has_set_token_information": true,
   "appcontainer_probe": {
-    "can_call_create_appcontainer_profile": true,
+    "has_create_appcontainer_profile": true,
+    "has_derive_appcontainer_sid": true,
+    "has_derive_restricted_appcontainer_sid": true,
+    "has_delete_appcontainer_profile": true,
+    "has_proc_thread_attribute_security_capabilities": true,
+    "profile_creation_succeeded": true,
     "profile_error": null,
+    "appcontainer_sid": "S-1-15-2-3913979712-3945711824-790552593-3221585147-2699140632-998471580-1509569715",
     "can_launch_appcontainer_process": true,
     "launch_error": null,
-    "cpython_dll_load_status": "EXIT_CODE_0xc0000135",
-    "cpython_exit_code": "0xc0000135",
-    "notes": [],
-    "appcontainer_sid": "S-1-15-2-415864145-1647125233-3892686428-2958539221-1189358823-1841608464-1733477565"
+    "cpython_execution_status": "SUCCESS",
+    "cpython_exit_code": "0x0",
+    "notes": []
   },
   "wsl_available": true,
-  "wsl_status": "D\u0000e\u0000f\u0000a\u0000u\u0000l\u0000t\u0000 \u0000V\u0000e\u0000r\u0000s\u0000i\u0000o\u0000n\u0000:\u0000 \u00002\u0000\n\u0000\n\u0000",
-  "windows_sandbox_executable": false
+  "wsl_status": "Default Version: 2",
+  "windows_sandbox_executable": false,
+  "hyperv_container_support": {
+    "vmcompute_exe_present": true,
+    "hcs_dll_present": false,
+    "wdagtool_exe_present": false
+  }
 }
