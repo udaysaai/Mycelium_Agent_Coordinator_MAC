@@ -199,7 +199,7 @@ MUTATIONS: List[Mutation] = [
         description="Allows unauthenticated requests on UI channel without valid secret",
         file_path=SUPERVISOR_PATH,
         mirror_path=None,
-        target="if not secrets.compare_digest(secret, self.ui_secret):",
+        target="if not hmac.compare_digest(secret, self.ui_secret):",
         replacement="if False:  # mutated: UI secret check bypassed"
     ),
     Mutation(
@@ -229,9 +229,44 @@ MUTATIONS: List[Mutation] = [
         target="if first_cmd not in self.ALLOWED_SHELL_COMMANDS:",
         replacement="if False:  # mutated: shell allowlist bypassed"
     ),
+
+    # -------------------------------------------------------------------------
+    # Phase 0.8 / WS2 Containment Mutations
+    # -------------------------------------------------------------------------
+    Mutation(
+        id="MUT_18_AC_NETWORK_CAPABILITY",
+        name="Accidental Network Capability Grant",
+        description="Grants network capabilities to AppContainer worker, breaking W3 network isolation",
+        file_path=SUPERVISOR_PATH,
+        mirror_path=None,
+        target="sec_caps.CapabilityCount = 0  # ZERO network capabilities",
+        replacement="sec_caps.CapabilityCount = 1; sec_caps.Capabilities = p_sid  # mutated: grant capability"
+    ),
+    Mutation(
+        id="MUT_19_SANDBOX_ACL_PARENT_READ",
+        name="Sandbox ACL Grants Parent Read",
+        description="Grants AppContainer package access to parent directory, breaking W1 filesystem isolation",
+        file_path=SUPERVISOR_PATH,
+        mirror_path=None,
+        target='["icacls", str(sandbox_dir), "/grant", "*S-1-15-2-1:(OI)(CI)(M)"],',
+        replacement='["icacls", str(sandbox_dir.parent.parent), "/grant", "*S-1-15-2-1:(OI)(CI)(RX)"],  # mutated: parent read'
+    ),
+    Mutation(
+        id="MUT_20_BYPASS_APPCONTAINER",
+        name="Bypass AppContainer Launch Isolation",
+        description="Bypasses AppContainer creation and falls back to uncontained execution",
+        file_path=SUPERVISOR_PATH,
+        mirror_path=None,
+        target="if hr == 0 or (hr & 0xFFFFFFFF) == 0x800700B7:",
+        replacement="if False:  # mutated: bypass appcontainer"
+    ),
 ]
 
+WS2_MUTATIONS = [m for m in MUTATIONS if m.id in ("MUT_18_AC_NETWORK_CAPABILITY", "MUT_19_SANDBOX_ACL_PARENT_READ", "MUT_20_BYPASS_APPCONTAINER")]
+
 FULL_SUITE_TESTS = [
+    "test_banned_words.py",
+    "test_approval_card_ui.py",
     "test_mac.py",
     "test_phase0_vertical_slice.py",
     "test_phase0_adversarial.py",
@@ -244,6 +279,7 @@ FULL_SUITE_TESTS = [
     "test_phase07_audit.py",
     "test_phase07_wiring.py",
     "test_phase07_containment.py",
+    "test_phase08_containment.py",
 ]
 
 BOUNDARY_ONLY_TESTS = [
@@ -255,6 +291,11 @@ BOUNDARY_ONLY_TESTS = [
     "test_phase07_audit.py",
     "test_phase07_wiring.py",
     "test_phase07_containment.py",
+    "test_phase08_containment.py",
+]
+
+WS2_TESTS = [
+    "test_phase08_containment.py",
 ]
 
 
@@ -399,21 +440,19 @@ def print_summary_table(title: str, results: List[Tuple[Mutation, str, str, str]
 
 def main() -> int:
     print("=" * 85)
-    print("TWO-PASS GOVERNANCE & POLICY MUTATION VERIFICATION")
+    print("TWO-PASS GOVERNANCE & POLICY MUTATION VERIFICATION (WS2)")
     print("=" * 85)
     print(f"Mutations defined: {len(MUTATIONS)}\n")
 
-    # Pass (a): Full Suite
-    results_full = execute_mutation_pass("Pass (a): Full Test Suite", FULL_SUITE_TESTS, MUTATIONS)
+    # Pass 1: WS2 Containment Tests
+    results_ws2 = execute_mutation_pass("Pass 1: WS2 Containment Tests Only", WS2_TESTS, WS2_MUTATIONS)
 
-    # Pass (b): Boundary-Only Suite (Part 3 requirement)
-    # Exclude verifier file mutations MUT_01-MUT_06 which are unit verifier checks,
-    # or evaluate all mutations on boundary path
-    results_boundary = execute_mutation_pass("Pass (b): IPC Boundary-Only Suite", BOUNDARY_ONLY_TESTS, MUTATIONS)
+    # Pass 2: Full Test Suite
+    results_full = execute_mutation_pass("Pass 2: Full Test Suite", FULL_SUITE_TESTS, MUTATIONS)
 
     # Print Tables
-    err_full = print_summary_table("PASS (A) FULL TEST SUITE MUTATION REPORT", results_full)
-    err_boundary = print_summary_table("PASS (B) IPC BOUNDARY-ONLY MUTATION REPORT", results_boundary)
+    err_ws2 = print_summary_table("PASS 1: WS2 CONTAINMENT MUTATION REPORT", results_ws2)
+    err_full = print_summary_table("PASS 2: FULL TEST SUITE MUTATION REPORT", results_full)
 
     # Save untruncated evidence file
     evidence_dir = WORKSPACE_ROOT / "evidence"
@@ -422,25 +461,25 @@ def main() -> int:
 
     with open(evidence_file, "w", encoding="utf-8") as f:
         f.write("=" * 85 + "\n")
-        f.write("PASS (A) FULL TEST SUITE MUTATION REPORT\n")
+        f.write("PASS 1: WS2 CONTAINMENT MUTATION REPORT\n")
+        f.write("=" * 85 + "\n")
+        f.write(f"{'ID':<16} | {'Mutation Name':<32} | {'Status':<10} | {'Type':<12} | {'Killing Test'}\n")
+        f.write("-" * 85 + "\n")
+        for mut, status, killer, category in results_ws2:
+            f.write(f"{mut.id:<16} | {mut.name[:32]:<32} | {status:<10} | {category:<12} | {killer}\n")
+        f.write("-" * 85 + "\n\n")
+
+        f.write("=" * 85 + "\n")
+        f.write("PASS 2: FULL TEST SUITE MUTATION REPORT\n")
         f.write("=" * 85 + "\n")
         f.write(f"{'ID':<16} | {'Mutation Name':<32} | {'Status':<10} | {'Type':<12} | {'Killing Test'}\n")
         f.write("-" * 85 + "\n")
         for mut, status, killer, category in results_full:
             f.write(f"{mut.id:<16} | {mut.name[:32]:<32} | {status:<10} | {category:<12} | {killer}\n")
-        f.write("-" * 85 + "\n\n")
-
-        f.write("=" * 85 + "\n")
-        f.write("PASS (B) IPC BOUNDARY-ONLY MUTATION REPORT\n")
-        f.write("=" * 85 + "\n")
-        f.write(f"{'ID':<16} | {'Mutation Name':<32} | {'Status':<10} | {'Type':<12} | {'Killing Test'}\n")
-        f.write("-" * 85 + "\n")
-        for mut, status, killer, category in results_boundary:
-            f.write(f"{mut.id:<16} | {mut.name[:32]:<32} | {status:<10} | {category:<12} | {killer}\n")
         f.write("-" * 85 + "\n")
 
     print(f"[+] Raw untruncated mutation evidence written to: {evidence_file}")
-    return 0 if (err_full == 0 and err_boundary <= 6) else 1
+    return 0 if (err_ws2 == 0 and err_full == 0) else 1
 
 
 if __name__ == "__main__":
