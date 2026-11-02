@@ -1,0 +1,194 @@
+﻿================================================================================
+MAC FRESH CLONE VERIFICATION RUN (Phase 0.7)
+Commit: 560b83a9cf7aaebf1d15b252beadec0f097ca3e7
+Python: Python 3.14.4
+Capture Time: 2026-11-02T11:30:46+05:30
+Encoding: UTF-8 (Direct Capture)
+================================================================================
+
+--- PIP FREEZE ---
+annotated-types==0.8.0
+colorama==0.4.6
+iniconfig==2.3.1
+markdown-it-py==4.2.0
+mdurl==0.1.2
+packaging==26.3
+pluggy==1.7.0
+pydantic==2.13.3
+pydantic_core==2.46.3
+Pygments==2.21.0
+pytest==8.2.2
+pywin32==311
+rich==15.0.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+
+--- PYTEST EXECUTION ---
+
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-8.2.2, pluggy-1.7.0 -- C:\Users\Uday\AppData\Local\Temp\mac_fresh_check_73c1fbf1aaeb410a94499d36573d240e\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Uday\AppData\Local\Temp\mac_fresh_check_73c1fbf1aaeb410a94499d36573d240e\repo
+configfile: pytest.ini
+testpaths: tests
+collecting ... collected 155 items
+
+tests/test_approval_card_ui.py::test_approval_card_payload_preserves_untruncated_command_and_target PASSED [  0%]
+tests/test_approval_card_ui.py::test_approval_card_payload_detects_all_anomaly_badges PASSED [  1%]
+tests/test_approval_card_ui.py::test_ui_renderer_defaults_keyboard_focus_on_reject PASSED [  1%]
+tests/test_banned_words.py::test_no_banned_words_in_source_or_docs PASSED [  2%]
+tests/test_mac.py::test_protocol_privilege_and_safety_enums PASSED       [  3%]
+tests/test_mac.py::test_action_request_defaults PASSED                   [  3%]
+tests/test_mac.py::test_execution_result_contract PASSED                 [  4%]
+tests/test_mac.py::test_daemon_file_write_and_read PASSED                [  5%]
+tests/test_mac.py::test_daemon_sandbox_escape_prevention PASSED          [  5%]
+tests/test_mac.py::test_daemon_file_not_found PASSED                     [  6%]
+tests/test_mac.py::test_daemon_execute_command_success PASSED            [  7%]
+tests/test_mac.py::test_daemon_execute_command_timeout PASSED            [  7%]
+tests/test_mac.py::test_mcp_gateway_semantic_vector_discovery PASSED     [  8%]
+tests/test_mac.py::test_mcp_gateway_argument_validation PASSED           [  9%]
+tests/test_mac.py::test_coordinator_read_only_fast_path PASSED           [  9%]
+tests/test_mac.py::test_coordinator_hol_guard_approval PASSED            [ 10%]
+tests/test_mac.py::test_coordinator_hol_guard_rejection PASSED           [ 10%]
+tests/test_phase05_boundary.py::test_boundary_c1_signing_key_not_leaked_to_worker PASSED [ 11%]
+tests/test_phase05_boundary.py::test_boundary_c2_sqlite_direct_tamper_fails_execution PASSED [ 12%]
+tests/test_phase05_boundary.py::test_boundary_c3_worker_channel_rejects_approval_messages PASSED [ 12%]
+tests/test_phase05_boundary.py::test_boundary_c4_ui_channel_rejects_unauthorized_worker PASSED [ 13%]
+tests/test_phase05_boundary.py::test_boundary_c5_forged_token_rejected_at_execution PASSED [ 14%]
+tests/test_phase05_boundary.py::test_boundary_c6_replay_token_rejected_across_ipc PASSED [ 14%]
+tests/test_phase05_boundary.py::test_boundary_c7_argument_tampering_rejected_across_ipc PASSED [ 15%]
+tests/test_phase05_boundary.py::test_boundary_c8_import_modules_in_worker_has_no_authority PASSED [ 16%]
+tests/test_phase05_boundary.py::test_boundary_c9_windows_process_memory_residual_risk PASSED [ 16%]
+tests/test_phase05_boundary.py::test_boundary_c10_job_object_containment PASSED [ 17%]
+tests/test_phase05_boundary.py::test_boundary_c11_supervisor_crash_worker_does_not_proceed PASSED [ 18%]
+tests/test_phase05_strengthened.py::test_strengthened_a1_crash_durability_real_subprocess PASSED [ 18%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[../evil.txt] PASSED [ 19%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[..\\evil.txt] PASSED [ 20%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[sub/../../evil.txt] PASSED [ 20%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[sub\\..\\..\\evil.txt] PASSED [ 21%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[/../evil.txt] PASSED [ 21%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[\\..\\evil.txt] PASSED [ 22%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[C:/Windows/System32/calc.exe] PASSED [ 23%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[C:\\Windows\\System32\\cmd.exe] PASSED [ 23%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[/etc/passwd] PASSED [ 24%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[\\Windows\\win.ini] PASSED [ 25%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[Z:\\outside.txt] PASSED [ 25%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[D:\\outside.txt] PASSED [ 26%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[c:evil.txt] PASSED [ 27%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[C:evil.txt] PASSED [ 27%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[\\\\server\\share\\payload.txt] PASSED [ 28%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[//server/share/payload.txt] PASSED [ 29%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[\\\\?\\C:\\outside.txt] PASSED [ 29%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[\\\\.\\COM1] PASSED [ 30%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[\\\\?\\UNC\\server\\share\\evil.txt] PASSED [ 30%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[CON] PASSED [ 31%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[PRN] PASSED [ 32%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[AUX] PASSED [ 32%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[NUL] PASSED [ 33%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[COM1] PASSED [ 34%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[COM2] PASSED [ 34%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[COM9] PASSED [ 35%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[LPT1] PASSED [ 36%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[LPT9] PASSED [ 36%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[NUL.txt] PASSED [ 37%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[con.json] PASSED [ 38%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[aux.dat] PASSED [ 38%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[com1.log] PASSED [ 39%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[lpt1.txt] PASSED [ 40%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[sub/NUL] PASSED [ 40%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[sub/con.txt] PASSED [ 41%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[sub\\NUL.txt] PASSED [ 41%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[evil.txt.] PASSED [ 42%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[evil.txt ] PASSED [ 43%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[evil.txt...] PASSED [ 43%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[evil.txt   ] PASSED [ 44%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[sub./file.txt] PASSED [ 45%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[sub /file.txt] PASSED [ 45%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[file.txt::$DATA] PASSED [ 46%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[file.txt:stream] PASSED [ 47%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[file.txt:hidden:$DATA] PASSED [ 47%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[sub/file.txt:evil] PASSED [ 48%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[PROGRA~1/evil.txt] PASSED [ 49%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_windows_path_safety_payloads[DOCUME~1/evil.txt] PASSED [ 49%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_case_variant_sandbox_prefix PASSED [ 50%]
+tests/test_phase05_strengthened.py::test_strengthened_a2_directory_junction_breakout PASSED [ 50%]
+tests/test_phase05_strengthened.py::test_strengthened_a4_validate_token_rejects_expired PASSED [ 51%]
+tests/test_phase05_strengthened.py::test_strengthened_a4_validate_token_rejects_non_approved_status PASSED [ 52%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut07_forged_hmac_on_approved_action PASSED [ 52%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut08_argument_tampering_recompute_call_hash PASSED [ 53%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut09_expired_token_rejected_over_ipc PASSED [ 54%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut10_consumed_state_replay_rejected_over_ipc PASSED [ 54%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut12_worker_channel_rejects_approval PASSED [ 55%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut13_worker_message_whitelist_bypassed PASSED [ 56%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut14_ui_secret_not_verified_on_approval PASSED [ 56%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut15_sandbox_path_containment_in_supervisor PASSED [ 57%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut16_state_integrity_check_before_execution PASSED [ 58%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut17_shell_command_outside_allowlist PASSED [ 58%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut11_unknown_tool_defaults_to_t2 PASSED [ 59%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut01_and_mut03_verifier_tampered_hash PASSED [ 60%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut02_verifier_missing_file PASSED [ 60%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut04_verifier_size_check PASSED [ 61%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut05_verifier_shell_exit_code PASSED [ 61%]
+tests/test_phase06_boundary_mutations.py::test_ipc_kill_mut06_verifier_binary_crlf_leak PASSED [ 62%]
+tests/test_phase06_state_integrity.py::test_tamper_detect_modify_pending_to_approved_directly_in_sqlite PASSED [ 63%]
+tests/test_phase06_state_integrity.py::test_tamper_detect_delete_row PASSED [ 63%]
+tests/test_phase06_state_integrity.py::test_tamper_detect_reorder_rows PASSED [ 64%]
+tests/test_phase06_state_integrity.py::test_tamper_detect_rollback_to_older_db_copy PASSED [ 65%]
+tests/test_phase06_wiring.py::test_production_mode_refuses_inprocess_coordinator PASSED [ 65%]
+tests/test_phase06_wiring.py::test_inprocess_flag_allows_testing_with_loud_warning PASSED [ 66%]
+tests/test_phase06_wiring.py::test_named_pipe_supervisor_support PASSED  [ 67%]
+tests/test_phase06_wiring.py::test_approval_card_exact_content_never_truncated_and_flags_long PASSED [ 67%]
+tests/test_phase06_wiring.py::test_approval_card_flags_newlines_and_control_characters PASSED [ 68%]
+tests/test_phase06_wiring.py::test_approval_card_flags_confusables_and_non_ascii PASSED [ 69%]
+tests/test_phase06_wiring.py::test_real_stack_e2e_supervisor_ui_approval PASSED [ 69%]
+tests/test_phase06_worker_containment.py::test_w1_canary_read_outside_sandbox PASSED [ 70%]
+tests/test_phase06_worker_containment.py::test_w2_write_outside_sandbox_blocked PASSED [ 70%]
+tests/test_phase06_worker_containment.py::test_w3_outbound_network_socket_diagnostic PASSED [ 71%]
+tests/test_phase06_worker_containment.py::test_w4_openprocess_against_supervisor_blocked PASSED [ 72%]
+tests/test_phase06_worker_containment.py::test_w5_write_to_database_blocked PASSED [ 72%]
+tests/test_phase06_worker_containment.py::test_w6_connect_to_ui_named_pipe_rejected PASSED [ 73%]
+tests/test_phase06_worker_containment.py::test_w7_spawn_within_job_object PASSED [ 74%]
+tests/test_phase07_audit.py::test_supervisor_loaded_files_not_writable_by_worker PASSED [ 74%]
+tests/test_phase07_audit.py::test_w4_non_vacuous_openprocess_against_supervisor_and_standin PASSED [ 75%]
+tests/test_phase07_audit.py::test_state_key_lifecycle_across_supervisor_restart_and_no_disk_leak PASSED [ 76%]
+tests/test_phase07_containment.py::test_w1_canary_read_residual_risk_documented PASSED [ 76%]
+tests/test_phase07_containment.py::test_w2_write_outside_task_sandbox_blocked PASSED [ 77%]
+tests/test_phase07_containment.py::test_w3_network_socket_residual_risk_documented PASSED [ 78%]
+tests/test_phase07_containment.py::test_w4_non_vacuous_openprocess_against_supervisor PASSED [ 78%]
+tests/test_phase07_containment.py::test_w5_direct_sqlite_write_blocked PASSED [ 79%]
+tests/test_phase07_containment.py::test_w6_guess_ui_pipe_and_send_approval_blocked PASSED [ 80%]
+tests/test_phase07_containment.py::test_w7_job_object_limits_memory_and_processes PASSED [ 80%]
+tests/test_phase07_containment.py::test_w8_supervisor_loaded_files_not_writable PASSED [ 81%]
+tests/test_phase07_containment.py::test_w9_zero_secrets_in_worker_environment_and_argv PASSED [ 81%]
+tests/test_phase07_wiring.py::test_supervisor_spawns_and_emits_handshake PASSED [ 82%]
+tests/test_phase07_wiring.py::test_ui_pipe_auth_success_and_failure PASSED [ 83%]
+tests/test_phase07_wiring.py::test_end_to_end_approval_flow_via_ui_pipe PASSED [ 83%]
+tests/test_phase07_wiring.py::test_end_to_end_rejection_flow_via_ui_pipe PASSED [ 84%]
+tests/test_phase07_wiring.py::test_engine_bridge_refuses_inprocess_and_bridges_supervisor_pipe PASSED [ 85%]
+tests/test_phase07_wiring.py::test_node_ui_pipe_client_integration PASSED [ 85%]
+tests/test_phase0_adversarial.py::test_adv_01_token_replay_rejected PASSED [ 86%]
+tests/test_phase0_adversarial.py::test_adv_02_argument_tampering_detected PASSED [ 87%]
+tests/test_phase0_adversarial.py::test_adv_03_token_authenticity_hmac PASSED [ 87%]
+tests/test_phase0_adversarial.py::test_adv_04_timeout_default_deny_with_clock PASSED [ 88%]
+tests/test_phase0_adversarial.py::test_adv_05_crash_durability_pending_survives PASSED [ 89%]
+tests/test_phase0_adversarial.py::test_adv_06_path_traversal_and_symlinks PASSED [ 89%]
+tests/test_phase0_adversarial.py::test_adv_07_tier_classification_and_capability_grants PASSED [ 90%]
+tests/test_phase0_adversarial.py::test_adv_08_approval_channel_isolation PASSED [ 90%]
+tests/test_phase0_adversarial.py::test_adv_09_verifier_tamper_cases PASSED [ 91%]
+tests/test_phase0_adversarial.py::test_adv_10_agent_self_report_unverified_task_fails PASSED [ 92%]
+tests/test_phase0_adversarial.py::test_adv_11_intake_vague_prompts_request_missing_slots PASSED [ 92%]
+tests/test_phase0_adversarial.py::test_adv_12_task_contract_immutability PASSED [ 93%]
+tests/test_phase0_vertical_slice.py::test_intake_greeting_no_404 PASSED  [ 94%]
+tests/test_phase0_vertical_slice.py::test_intake_slot_filling_for_vague_request PASSED [ 94%]
+tests/test_phase0_vertical_slice.py::test_intake_compiles_task_contract PASSED [ 95%]
+tests/test_phase0_vertical_slice.py::test_t0_read_bypasses_quarantine PASSED [ 96%]
+tests/test_phase0_vertical_slice.py::test_t1_sandboxed_atomic_writer PASSED [ 96%]
+tests/test_phase0_vertical_slice.py::test_t2_quarantine_rejection_blocks_execution PASSED [ 97%]
+tests/test_phase0_vertical_slice.py::test_t2_quarantine_approval_with_token PASSED [ 98%]
+tests/test_phase0_vertical_slice.py::test_t2_token_replay_blocked PASSED [ 98%]
+tests/test_phase0_vertical_slice.py::test_verifier_catches_tampered_or_missing_file PASSED [ 99%]
+tests/test_phase0_vertical_slice.py::test_sqlite_wal_persistence_across_restart PASSED [100%]
+
+============================ 155 passed in 43.06s =============================
+
+Exit Code: 0

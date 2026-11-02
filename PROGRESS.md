@@ -20,11 +20,11 @@
 | **WS0.7** | `5c7a5b3` | Implemented Low-IL worker spawner, Windows Job Object 512MB RAM cap, and threat model. | WS0.8 |
 | **WS0.8** | `fae5be4` | Separated pipe identifier from secret and cleaned legacy overclaims in docs/scripts. | WS0.9 |
 | **WS0.9** | `cb70326` | Reorganized repository into clean mac/, tests/, docs/, scripts/ subdirectories. | WS1.1 |
-| **WS1.1** | *(pending)* | Added dedicated test_banned_words.py enforcing Rule R6 across all source/doc files. | WS1.2 |
-| **WS1.2** | *(pending)* | Added test_approval_card_ui.py verifying untruncated display and default Reject focus. | WS1.3 |
-| **WS1.3** | *(pending)* | Added root SECURITY.md, THREAT_MODEL.md, and .github/workflows/ci.yml on windows-latest. | WS1.4 |
-| **WS1.4** | *(pending)* | Verified git index contains zero db, checkpoint, key files, or personal paths. | WS1.5 |
-| **WS1.5** | *(pending)* | Lock Gate A: create local tag v0.7-hardened-prototype and execute fresh clone verification. | WS2.1 |
+| **WS1.1** | `9f678af` | Added dedicated test_banned_words.py enforcing Rule R6 across all source/doc files. | WS1.2 |
+| **WS1.2** | `9f678af` | Added test_approval_card_ui.py verifying untruncated display and default Reject focus. | WS1.3 |
+| **WS1.3** | `9f678af` | Added root SECURITY.md, THREAT_MODEL.md, and .github/workflows/ci.yml on windows-latest. | WS1.4 |
+| **WS1.4** | `9f678af` | Verified git index contains zero db, checkpoint, key files, or personal paths. | WS1.5 |
+| **WS1.5** | `560b83a` | Lock Gate A: created annotated local tag v0.7-hardened-prototype; fresh clone check passed 155/155 tests (evidence/gate_a_fresh_clone.txt SHA-256: `11AD3390053752EE0F0C9C1DA0809320010A1E71A729F4154D07CF27ADAAB857`). | WS2.1 |
 
 ---
 
@@ -33,3 +33,4 @@
 - **Two-Pass Mutation Score**: 17/17 killed
 - **Banned Words Status**: Zero violations across .py, .md, .html, .js, and .css files
 - **Remote Push Policy**: Rule R9 strictly enforced (no remote pushes; manual push command provided)
+
