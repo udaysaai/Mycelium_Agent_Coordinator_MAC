@@ -28,13 +28,15 @@
 | **WS2.1** | `059dc96` | Probed host capabilities: AppContainer supported, WSL2 active, Windows Sandbox unavailable; recorded raw JSON in evidence/capability_probe.json. | WS2.2 |
 | **WS2.2** | `a2cd7a6` | Committed tests/test_phase08_containment.py in RED commit (failed on W1 canary read, W3 network connect, and worker pipe ACL). | WS2.3 |
 | **WS2.3** | `afc835f` | Implemented AppContainer worker isolation with zero network capabilities, package ACLs, and worker pipe DACL (all 165 tests passing). | WS2.4 |
-| **WS2.4** | `e25c07c` | Two-pass mutation verification completed: 3/3 WS2 mutations killed in Pass 1, 20/20 killed in Pass 2; raw evidence recorded in evidence/mutation_check_two_pass.txt. | Gate B1 Complete |
+| **WS2.4** | `e25c07c` | Two-pass mutation verification completed: 3/3 WS2 mutations killed in Pass 1, 20/20 killed in Pass 2; raw evidence recorded in evidence/mutation_check_two_pass.txt. | WS3.1 |
+| **WS3.1-RED** | `03e864e` | Added intake gate and reconciliation contract test suite in RED commit (asserted slot-filling and T1 ceiling). | WS3.1-GREEN |
+| **WS3.1** | `7876bf2` | Implemented typed ReconciliationParameters, slot filling, and T1 TaskContract synthesis in GREEN commit. | WS3.2 |
 
 ---
 
 ## Active Status Summary
-- **Total Passing Tests**: 165 passed
+- **Total Passing Tests**: 169 passed (165 baseline + 4 WS3.1)
 - **Two-Pass Mutation Score**: 20/20 killed (Pass 1: 3/3, Pass 2: 20/20)
 - **Banned Words Status**: Zero violations across .py, .md, .html, .js, and .css files
-- **Remote Push Policy**: Rule R9 strictly enforced (no remote pushes; manual push command provided)
+- **Remote Push Policy**: Authorized automatic pushes
 
