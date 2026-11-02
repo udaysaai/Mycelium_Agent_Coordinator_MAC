@@ -43,3 +43,22 @@ Successfully processed 1 files; Failed processing 0 files
 ## Architectural Rule
 No system Python installation files or registry keys may have their ACLs or integrity levels modified. The worker process must execute from an isolated runtime or AppContainer with permissions granted strictly within the repository workspace.
 
+---
+
+## Change 2: Phase 0.8 / WS2 Repo-Local Runtime & Workspace Sandbox Package ACLs
+
+### Description
+To enforce AppContainer isolation (W1 file read denial and W3 network denial) without machine-level changes, permissions were granted strictly to repo-local directories:
+1. `runtime/worker_python`: Granted `ALL APPLICATION PACKAGES` (`S-1-15-2-1`) `(OI)(CI)(RX)` (Read & Execute only, no write/modify).
+2. `workspace_sandbox`: Granted `ALL APPLICATION PACKAGES` (`S-1-15-2-1`) `(OI)(CI)(M)` (Modify within task sandbox only).
+
+### Applied Commands
+```cmd
+icacls "runtime\worker_python" /grant "*S-1-15-2-1:(OI)(CI)(RX)"
+icacls "workspace_sandbox" /grant "*S-1-15-2-1:(OI)(CI)(M)"
+```
+
+### Verification
+Zero files outside the repository directory were touched. System Python at `C:\Users\Uday\AppData\Local\Programs\Python` remains strictly untouched with default Medium Mandatory Level.
+
+

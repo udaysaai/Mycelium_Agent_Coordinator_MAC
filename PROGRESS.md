@@ -25,11 +25,14 @@
 | **WS1.3** | `9f678af` | Added root SECURITY.md, THREAT_MODEL.md, and .github/workflows/ci.yml on windows-latest. | WS1.4 |
 | **WS1.4** | `9f678af` | Verified git index contains zero db, checkpoint, key files, or personal paths. | WS1.5 |
 | **WS1.5** | `560b83a` | Lock Gate A: created annotated local tag v0.7-hardened-prototype; fresh clone check passed 155/155 tests (evidence/gate_a_fresh_clone.txt SHA-256: `11AD3390053752EE0F0C9C1DA0809320010A1E71A729F4154D07CF27ADAAB857`). | WS2.1 |
+| **WS2.1** | `059dc96` | Probed host capabilities: AppContainer supported, WSL2 active, Windows Sandbox unavailable; recorded raw JSON in evidence/capability_probe.json. | WS2.2 |
+| **WS2.2** | `a2cd7a6` | Committed tests/test_phase08_containment.py in RED commit (failed on W1 canary read, W3 network connect, and worker pipe ACL). | WS2.3 |
+| **WS2.3** | *(pending)* | Implemented AppContainer worker isolation with zero network capabilities, package ACLs, and worker pipe DACL (all 165 tests passing). | WS2.4 |
 
 ---
 
 ## Active Status Summary
-- **Total Passing Tests**: 155 passed
+- **Total Passing Tests**: 165 passed
 - **Two-Pass Mutation Score**: 17/17 killed
 - **Banned Words Status**: Zero violations across .py, .md, .html, .js, and .css files
 - **Remote Push Policy**: Rule R9 strictly enforced (no remote pushes; manual push command provided)

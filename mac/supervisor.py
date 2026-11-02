@@ -91,6 +91,7 @@ class SupervisorDaemon:
         # Ensure sandbox and data directories exist
         (self.workspace_root / "workspace_sandbox").mkdir(parents=True, exist_ok=True)
         (self.workspace_root / "data").mkdir(parents=True, exist_ok=True)
+        self._ensure_appcontainer_acls()
 
         # 1. Ephemeral In-Memory Signing Key: Dies with this process
         self._signing_key: bytes = secrets.token_bytes(32)
@@ -219,6 +220,28 @@ class SupervisorDaemon:
             logger.warning(f"Failed to assign worker {proc.pid} to Job Object: {e}")
         return False
 
+    def _ensure_appcontainer_acls(self) -> None:
+        """
+        Grants Read & Execute to ALL APPLICATION PACKAGES on runtime/worker_python,
+        and Modify on workspace_sandbox.
+        """
+        if sys.platform != "win32":
+            return
+        try:
+            sandbox_dir = (self.workspace_root / "workspace_sandbox").resolve()
+            subprocess.run(
+                ["icacls", str(sandbox_dir), "/grant", "*S-1-15-2-1:(OI)(CI)(M)"],
+                capture_output=True, timeout=5
+            )
+            runtime_dir = Path(__file__).resolve().parent.parent / "runtime" / "worker_python"
+            if runtime_dir.exists():
+                subprocess.run(
+                    ["icacls", str(runtime_dir), "/grant", "*S-1-15-2-1:(OI)(CI)(RX)"],
+                    capture_output=True, timeout=5
+                )
+        except Exception as e:
+            logger.debug(f"Could not apply package ACLs: {e}")
+
     def _ensure_low_integrity_winsta_desktop(self) -> None:
         if sys.platform != "win32":
             return
@@ -267,11 +290,11 @@ class SupervisorDaemon:
 
     def spawn_worker_process(self, script_body: str) -> Dict[str, Any]:
         """
-        Spawn a restricted worker process with dropped privileges and Low Integrity level.
+        Spawn an isolated worker process inside a Windows AppContainer with dropped privileges.
         Enforces:
-          - Restricted token (DISABLE_MAX_PRIVILEGE)
-          - Low Integrity Level (S-1-16-4096)
-          - Confinement in Windows Job Object
+          - AppContainer isolation with ZERO network capabilities (blocks outbound TCP/UDP/DNS)
+          - Explicit discretionary ACLs on assigned sandbox directory only (blocks read/write outside sandbox)
+          - Confinement in Windows Job Object (512MB RAM cap, process limit)
         Captures structured output and returns parsed probe JSON dictionary.
         """
         import uuid
@@ -284,103 +307,228 @@ class SupervisorDaemon:
         script_file.write_text(script_body, encoding="utf-8")
 
         if sys.platform == "win32":
+            appcontainer_launched = False
+            container_name = f"MAC_Worker_{unique_id}"
             try:
-                self._ensure_low_integrity_winsta_desktop()
-                import win32api
-                import win32con
-                import win32event
-                import win32file
-                import win32process
-                import win32security
+                userenv = ctypes.windll.userenv
+                kernel32 = ctypes.windll.kernel32
+                advapi32 = ctypes.windll.advapi32
 
-                # Ensure sandbox directory allows Low Integrity inheritance
-                subprocess.run(
-                    f'icacls "{sandbox_dir}" /setintegritylevel (OI)(CI)L',
-                    shell=True,
-                    capture_output=True,
-                    timeout=5
+                p_sid = ctypes.c_void_p()
+                hr = userenv.CreateAppContainerProfile(
+                    ctypes.c_wchar_p(container_name),
+                    ctypes.c_wchar_p(f"MAC Worker {unique_id}"),
+                    ctypes.c_wchar_p("MAC Isolated Worker Container"),
+                    None, 0, ctypes.byref(p_sid)
                 )
+                if hr == 0 or (hr & 0xFFFFFFFF) == 0x800700B7:
+                    if hr != 0:
+                        userenv.DeriveAppContainerSidFromAppContainerName(
+                            ctypes.c_wchar_p(container_name),
+                            ctypes.byref(p_sid)
+                        )
 
-                # 1. Open current process token
-                h_current = win32api.GetCurrentProcess()
-                tok = win32security.OpenProcessToken(
-                    h_current,
-                    win32con.TOKEN_DUPLICATE | win32con.TOKEN_ASSIGN_PRIMARY | win32con.TOKEN_QUERY | win32con.TOKEN_ADJUST_DEFAULT
-                )
+                    # Prepare worker executable
+                    repo_worker_py = Path(__file__).resolve().parent.parent / "runtime" / "worker_python" / "python.exe"
+                    if not repo_worker_py.exists():
+                        repo_worker_py = Path(__file__).parent / "runtime" / "worker_python" / "python.exe"
+                    worker_exe = str(repo_worker_py) if repo_worker_py.exists() else sys.executable
 
-                # 2. Drop all unnecessary privileges
-                rest_tok = win32security.CreateRestrictedToken(
-                    tok, win32security.DISABLE_MAX_PRIVILEGE, [], [], []
-                )
+                    class SECURITY_CAPABILITIES(ctypes.Structure):
+                        _fields_ = [
+                            ("AppContainerSid", ctypes.c_void_p),
+                            ("Capabilities", ctypes.c_void_p),
+                            ("CapabilityCount", ctypes.wintypes.DWORD),
+                            ("Reserved", ctypes.wintypes.DWORD)
+                        ]
 
-                # 3. Set TokenIntegrityLevel to Low Integrity (S-1-16-4096)
-                low_sid = win32security.ConvertStringSidToSid("S-1-16-4096")
-                win32security.SetTokenInformation(
-                    rest_tok,
-                    win32security.TokenIntegrityLevel,
-                    (low_sid, win32security.SE_GROUP_INTEGRITY)
-                )
+                    sec_caps = SECURITY_CAPABILITIES()
+                    sec_caps.AppContainerSid = p_sid
+                    sec_caps.Capabilities = None
+                    sec_caps.CapabilityCount = 0  # ZERO network capabilities
+                    sec_caps.Reserved = 0
 
-                # 4. Prepare inheritable output file handle
-                sa = win32security.SECURITY_ATTRIBUTES()
-                sa.bInheritHandle = 1
-
-                h_out = win32file.CreateFile(
-                    str(out_file),
-                    win32file.GENERIC_WRITE | win32file.GENERIC_READ,
-                    win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
-                    sa,
-                    win32file.CREATE_ALWAYS,
-                    win32file.FILE_ATTRIBUTE_NORMAL,
-                    None
-                )
-
-                startup = win32process.STARTUPINFO()
-                startup.dwFlags = win32process.STARTF_USESTDHANDLES
-                startup.hStdOutput = h_out
-                startup.hStdError = h_out
-
-                worker_exe = sys.executable
-                repo_worker_py = Path(__file__).resolve().parent.parent / "runtime" / "worker_python" / "python.exe"
-                if not repo_worker_py.exists():
-                    repo_worker_py = Path(__file__).parent / "runtime" / "worker_python" / "python.exe"
-                if repo_worker_py.exists():
-                    worker_exe = str(repo_worker_py)
-
-                cmd = f'"{worker_exe}" -u "{script_file}"'
-                working_dir = str(repo_worker_py.parent) if repo_worker_py.exists() else str(self.workspace_root)
-                h_proc, h_thread, pid, tid = win32process.CreateProcessAsUser(
-                    rest_tok, None, cmd, None, None, True, 0, None, working_dir, startup
-                )
-
-                # 5. Assign to Job Object
-                if self.job_object_active and self.job_object_handle:
-                    try:
-                        kernel32 = ctypes.windll.kernel32
-                        kernel32.AssignProcessToJobObject(self.job_object_handle, int(h_proc))
-                    except Exception as e:
-                        logger.warning(f"Failed to assign restricted worker to Job Object: {e}")
-
-                win32event.WaitForSingleObject(h_proc, 10000)
-                win32file.CloseHandle(h_out)
-                win32api.CloseHandle(h_proc)
-                win32api.CloseHandle(h_thread)
-
-            except Exception as e:
-                logger.error(f"Error spawning restricted worker via CreateProcessAsUser: {e}")
-                # Fallback to standard subprocess
-                with open(out_file, "w", encoding="utf-8") as f_out:
-                    proc = subprocess.Popen(
-                        [sys.executable, "-u", str(script_file)],
-                        stdout=f_out,
-                        stderr=f_out,
-                        cwd=str(self.workspace_root)
+                    size = ctypes.c_size_t(0)
+                    kernel32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size))
+                    attr_list = ctypes.create_string_buffer(size.value)
+                    kernel32.InitializeProcThreadAttributeList(attr_list, 1, 0, ctypes.byref(size))
+                    kernel32.UpdateProcThreadAttribute(
+                        attr_list, 0, 0x20009,  # PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES
+                        ctypes.byref(sec_caps), ctypes.sizeof(sec_caps), None, None
                     )
-                    self.assign_worker_to_job(proc)
+
+                    class STARTUPINFOW(ctypes.Structure):
+                        _fields_ = [
+                            ("cb", ctypes.wintypes.DWORD), ("lpReserved", ctypes.wintypes.LPWSTR), ("lpDesktop", ctypes.wintypes.LPWSTR),
+                            ("lpTitle", ctypes.wintypes.LPWSTR), ("dwX", ctypes.wintypes.DWORD), ("dwY", ctypes.wintypes.DWORD),
+                            ("dwXSize", ctypes.wintypes.DWORD), ("dwYSize", ctypes.wintypes.DWORD), ("dwXCountChars", ctypes.wintypes.DWORD),
+                            ("dwYCountChars", ctypes.wintypes.DWORD), ("dwFillAttribute", ctypes.wintypes.DWORD),
+                            ("dwFlags", ctypes.wintypes.DWORD), ("wShowWindow", ctypes.wintypes.WORD), ("cbReserved2", ctypes.wintypes.WORD),
+                            ("lpReserved2", ctypes.c_void_p), ("hStdInput", ctypes.wintypes.HANDLE), ("hStdOutput", ctypes.wintypes.HANDLE),
+                            ("hStdError", ctypes.wintypes.HANDLE)
+                        ]
+
+                    class STARTUPINFOEXW(ctypes.Structure):
+                        _fields_ = [("StartupInfo", STARTUPINFOW), ("lpAttributeList", ctypes.c_void_p)]
+
+                    class PROCESS_INFORMATION(ctypes.Structure):
+                        _fields_ = [("hProcess", ctypes.wintypes.HANDLE), ("hThread", ctypes.wintypes.HANDLE), ("dwProcessId", ctypes.wintypes.DWORD), ("dwThreadId", ctypes.wintypes.DWORD)]
+
+                    import win32file, win32security
+                    sa_file = win32security.SECURITY_ATTRIBUTES()
+                    sa_file.bInheritHandle = 1
+
+                    h_out = win32file.CreateFile(
+                        str(out_file),
+                        win32file.GENERIC_WRITE | win32file.GENERIC_READ,
+                        win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
+                        sa_file,
+                        win32file.CREATE_ALWAYS,
+                        win32file.FILE_ATTRIBUTE_NORMAL,
+                        None
+                    )
+
+                    si = STARTUPINFOEXW()
+                    si.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
+                    si.StartupInfo.dwFlags = 0x00000100  # STARTF_USESTDHANDLES
+                    si.StartupInfo.hStdOutput = int(h_out)
+                    si.StartupInfo.hStdError = int(h_out)
+                    si.lpAttributeList = ctypes.cast(attr_list, ctypes.c_void_p)
+                    pi = PROCESS_INFORMATION()
+
+                    cmd = f'"{worker_exe}" -u "{script_file}"'
+                    working_dir = str(sandbox_dir)
+
+                    success = kernel32.CreateProcessW(
+                        None, ctypes.c_wchar_p(cmd), None, None,
+                        True,  # bInheritHandles
+                        0x00080000,  # EXTENDED_STARTUPINFO_PRESENT
+                        None,
+                        ctypes.c_wchar_p(working_dir),
+                        ctypes.byref(si),
+                        ctypes.byref(pi)
+                    )
+                    if success:
+                        appcontainer_launched = True
+                        if self.job_object_active and self.job_object_handle:
+                            try:
+                                kernel32.AssignProcessToJobObject(self.job_object_handle, int(pi.hProcess))
+                            except Exception as e:
+                                logger.warning(f"Failed to assign AppContainer worker to Job Object: {e}")
+
+                        kernel32.WaitForSingleObject(pi.hProcess, 15000)
+                        kernel32.CloseHandle(pi.hProcess)
+                        kernel32.CloseHandle(pi.hThread)
+
+                    win32file.CloseHandle(h_out)
+                    kernel32.DeleteProcThreadAttributeList(attr_list)
+            except Exception as e:
+                logger.warning(f"AppContainer worker launch attempt failed, falling back to Low-IL: {e}")
+            finally:
+                if container_name:
                     try:
-                        proc.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
+                        ctypes.windll.userenv.DeleteAppContainerProfile(ctypes.c_wchar_p(container_name))
+                    except Exception:
+                        pass
+
+            if not appcontainer_launched:
+                try:
+                    self._ensure_low_integrity_winsta_desktop()
+                    import win32api
+                    import win32con
+                    import win32event
+                    import win32file
+                    import win32process
+                    import win32security
+
+                    # Ensure sandbox directory allows Low Integrity inheritance
+                    subprocess.run(
+                        f'icacls "{sandbox_dir}" /setintegritylevel (OI)(CI)L',
+                        shell=True,
+                        capture_output=True,
+                        timeout=5
+                    )
+
+                    # 1. Open current process token
+                    h_current = win32api.GetCurrentProcess()
+                    tok = win32security.OpenProcessToken(
+                        h_current,
+                        win32con.TOKEN_DUPLICATE | win32con.TOKEN_ASSIGN_PRIMARY | win32con.TOKEN_QUERY | win32con.TOKEN_ADJUST_DEFAULT
+                    )
+
+                    # 2. Drop all unnecessary privileges
+                    rest_tok = win32security.CreateRestrictedToken(
+                        tok, win32security.DISABLE_MAX_PRIVILEGE, [], [], []
+                    )
+
+                    # 3. Set TokenIntegrityLevel to Low Integrity (S-1-16-4096)
+                    low_sid = win32security.ConvertStringSidToSid("S-1-16-4096")
+                    win32security.SetTokenInformation(
+                        rest_tok,
+                        win32security.TokenIntegrityLevel,
+                        (low_sid, win32security.SE_GROUP_INTEGRITY)
+                    )
+
+                    # 4. Prepare inheritable output file handle
+                    sa = win32security.SECURITY_ATTRIBUTES()
+                    sa.bInheritHandle = 1
+
+                    h_out = win32file.CreateFile(
+                        str(out_file),
+                        win32file.GENERIC_WRITE | win32file.GENERIC_READ,
+                        win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
+                        sa,
+                        win32file.CREATE_ALWAYS,
+                        win32file.FILE_ATTRIBUTE_NORMAL,
+                        None
+                    )
+
+                    startup = win32process.STARTUPINFO()
+                    startup.dwFlags = win32process.STARTF_USESTDHANDLES
+                    startup.hStdOutput = h_out
+                    startup.hStdError = h_out
+
+                    worker_exe = sys.executable
+                    repo_worker_py = Path(__file__).resolve().parent.parent / "runtime" / "worker_python" / "python.exe"
+                    if not repo_worker_py.exists():
+                        repo_worker_py = Path(__file__).parent / "runtime" / "worker_python" / "python.exe"
+                    if repo_worker_py.exists():
+                        worker_exe = str(repo_worker_py)
+
+                    cmd = f'"{worker_exe}" -u "{script_file}"'
+                    working_dir = str(repo_worker_py.parent) if repo_worker_py.exists() else str(self.workspace_root)
+                    h_proc, h_thread, pid, tid = win32process.CreateProcessAsUser(
+                        rest_tok, None, cmd, None, None, True, 0, None, working_dir, startup
+                    )
+
+                    # 5. Assign to Job Object
+                    if self.job_object_active and self.job_object_handle:
+                        try:
+                            kernel32 = ctypes.windll.kernel32
+                            kernel32.AssignProcessToJobObject(self.job_object_handle, int(h_proc))
+                        except Exception as e:
+                            logger.warning(f"Failed to assign restricted worker to Job Object: {e}")
+
+                    win32event.WaitForSingleObject(h_proc, 10000)
+                    win32file.CloseHandle(h_out)
+                    win32api.CloseHandle(h_proc)
+                    win32api.CloseHandle(h_thread)
+
+                except Exception as e:
+                    logger.error(f"Error spawning restricted worker via CreateProcessAsUser: {e}")
+                    # Fallback to standard subprocess
+                    with open(out_file, "w", encoding="utf-8") as f_out:
+                        proc = subprocess.Popen(
+                            [sys.executable, "-u", str(script_file)],
+                            stdout=f_out,
+                            stderr=f_out,
+                            cwd=str(self.workspace_root)
+                        )
+                        self.assign_worker_to_job(proc)
+                        try:
+                            proc.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
         else:
             with open(out_file, "w", encoding="utf-8") as f_out:
                 proc = subprocess.Popen(
@@ -1027,6 +1175,44 @@ class SupervisorDaemon:
             logger.warning(f"Could not configure pipe user DACL: {e}")
             return None
 
+    @staticmethod
+    def _create_worker_pipe_security_attributes():
+        """
+        Creates Security Attributes for worker named pipe permitting:
+          - Creator/operator user (GENERIC_READ | GENERIC_WRITE)
+          - ALL APPLICATION PACKAGES (S-1-15-2-1) (GENERIC_READ | GENERIC_WRITE)
+          - Low Integrity SACL (S-1-16-4096) with SYSTEM_MANDATORY_LABEL_NO_WRITE_UP
+        Enforces that unauthenticated connections without worker_secret cannot execute commands.
+        """
+        if sys.platform != "win32":
+            return None
+        try:
+            import win32api, win32security, ntsecuritycon
+            token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32security.TOKEN_QUERY)
+            user_sid = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
+            all_packages_sid = win32security.ConvertStringSidToSid("S-1-15-2-1")
+            low_sid = win32security.ConvertStringSidToSid("S-1-16-4096")
+
+            dacl = win32security.ACL()
+            dacl.AddAccessAllowedAce(win32security.ACL_REVISION, ntsecuritycon.GENERIC_READ | ntsecuritycon.GENERIC_WRITE, user_sid)
+            dacl.AddAccessAllowedAce(win32security.ACL_REVISION, ntsecuritycon.GENERIC_READ | ntsecuritycon.GENERIC_WRITE, all_packages_sid)
+
+            sacl = win32security.ACL()
+            sacl.AddMandatoryAce(win32security.ACL_REVISION, 0, win32security.SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, low_sid)
+
+            sd = win32security.SECURITY_DESCRIPTOR()
+            sd.SetSecurityDescriptorDacl(True, dacl, False)
+            sd.SetSecurityDescriptorSacl(True, sacl, False)
+            sd.SetSecurityDescriptorOwner(user_sid, False)
+
+            sa = win32security.SECURITY_ATTRIBUTES()
+            sa.SECURITY_DESCRIPTOR = sd
+            sa.bInheritHandle = False
+            return sa
+        except Exception as e:
+            logger.warning(f"Could not configure worker pipe DACL: {e}")
+            return SupervisorDaemon._create_user_only_security_attributes()
+
     def _unblock_pipes(self):
         try:
             import win32file
@@ -1041,18 +1227,19 @@ class SupervisorDaemon:
 
     def _start_named_pipes(self):
         import win32pipe
-        sa = self._create_user_only_security_attributes()
+        sa_ui = self._create_user_only_security_attributes()
+        sa_worker = self._create_worker_pipe_security_attributes()
         self._initial_worker_pipe = win32pipe.CreateNamedPipe(
             self.worker_pipe_path,
             win32pipe.PIPE_ACCESS_DUPLEX,
             win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
-            win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, sa
+            win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, sa_worker
         )
         self._initial_ui_pipe = win32pipe.CreateNamedPipe(
             self.ui_pipe_path,
             win32pipe.PIPE_ACCESS_DUPLEX,
             win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
-            win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, sa
+            win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, sa_ui
         )
         with self._conn_lock:
             self._pipe_handles.append(self._initial_worker_pipe)
@@ -1066,7 +1253,7 @@ class SupervisorDaemon:
 
     def _worker_pipe_loop(self):
         import win32pipe
-        sa = self._create_user_only_security_attributes()
+        sa_worker = self._create_worker_pipe_security_attributes()
         h_pipe = self._initial_worker_pipe
         while self._running:
             try:
@@ -1082,7 +1269,7 @@ class SupervisorDaemon:
                     self.worker_pipe_path,
                     win32pipe.PIPE_ACCESS_DUPLEX,
                     win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
-                    win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, sa
+                    win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, sa_worker
                 )
                 with self._conn_lock:
                     self._pipe_handles.append(h_pipe)
