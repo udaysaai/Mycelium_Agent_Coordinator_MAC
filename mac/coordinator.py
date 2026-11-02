@@ -298,6 +298,59 @@ class MyceliumCoordinator:
             tags=["list", "ls", "dir", "directory", "browse", "folder"]
         )
 
+        # 7. Reconcile Accounts (T1: MUTATING_SANDBOX)
+        class ReconcileAccountsParams(BaseModel):
+            model_config = ConfigDict(extra="ignore")
+            cashbook_file: str
+            bank_statement_file: str
+            period_from: str
+            period_to: str
+            opening_balance_source: str = "cashbook"
+            date_tolerance_days: int = 3
+            amount_exact: bool = True
+            output_folder: str = "workspace_sandbox/reconciliation_output"
+
+        def _reconcile_accounts_handler(
+            cashbook_file: str,
+            bank_statement_file: str,
+            period_from: str,
+            period_to: str,
+            opening_balance_source: str = "cashbook",
+            date_tolerance_days: int = 3,
+            amount_exact: bool = True,
+            output_folder: str = "workspace_sandbox/reconciliation_output"
+        ) -> Dict[str, Any]:
+            from reconciliation_engine import DeterministicReconciliationEngine, ReconciliationConfig
+            cfg = ReconciliationConfig(
+                period_from=period_from,
+                period_to=period_to,
+                opening_balance_source=opening_balance_source,
+                date_tolerance_days=int(date_tolerance_days),
+                amount_exact=bool(amount_exact),
+                output_folder=output_folder
+            )
+            engine = DeterministicReconciliationEngine(config=cfg)
+            cb_p = self.workspace_root / cashbook_file if not Path(cashbook_file).is_absolute() else Path(cashbook_file)
+            bs_p = self.workspace_root / bank_statement_file if not Path(bank_statement_file).is_absolute() else Path(bank_statement_file)
+            out_p = self.workspace_root / output_folder if not Path(output_folder).is_absolute() else Path(output_folder)
+            res = engine.reconcile(cb_p, bs_p, out_p)
+            return {
+                "status": "COMPLETED",
+                "summary": res["summary"],
+                "output_folder": str(out_p),
+                "matched_count": len(res["matched"]),
+                "exceptions_count": len(res["exceptions"])
+            }
+
+        self.gateway.register_tool(
+            name="reconcile_accounts",
+            description="Deterministically reconcile cashbook against bank statement within task output folder.",
+            safety_tier=SafetyTier.MUTATING_SANDBOX,
+            schema_model=ReconcileAccountsParams,
+            handler=_reconcile_accounts_handler,
+            tags=["reconciliation", "cashbook", "bank", "tally", "finance", "reconcile"]
+        )
+
     def set_human_confirmation_hook(self, hook: Callable[[HOLQuarantineEvent], bool]) -> None:
         """Configure custom operator confirmation callback."""
         self.human_confirmation_hook = hook
