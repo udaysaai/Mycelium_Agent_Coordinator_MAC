@@ -2,7 +2,7 @@
 tests/test_gp_classified_cashbook.py - Tests for Maharashtra Gram Panchayat Classified Cashbook.
 Validates multi-section parsing, Devanagari numeral normalization, double-dot date typos,
 continuation row date inheritance, subtotal/summary row isolation, and section subtotal verification.
-Using 100% fictional synthetic Adarshgaon Gram Panchayat dataset (Rule R11 Government Data Sanitization).
+Using fictional synthetic Adarshgaon Gram Panchayat dataset (Rule R11 Government Data Sanitization).
 """
 
 from datetime import date
