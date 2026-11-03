@@ -1,0 +1,21 @@
+{
+  "engine_version": "1.0.0",
+  "inputs": {
+    "bank_file": "D:\\US_Neural ai agent\\Mycelium Agent Coordinator (MAC)\\pilot_demo\\adarshgaon_bank_synthetic_2024_25.csv",
+    "bank_sha256": "84d4e51b65c35b9c9f1a1e1299cca549a104102cd8de561a34f6538d67cb918c",
+    "cashbook_file": "D:\\US_Neural ai agent\\Mycelium Agent Coordinator (MAC)\\pilot_demo\\adarshgaon_gramnidhi_synthetic_2024_25.xlsx",
+    "cashbook_sha256": "1ec93fa0fd69cd3f8b476a1a2f5787a6d2f7b7b9077643dd741664098af25775"
+  },
+  "outputs": {
+    "reconciliation_result_json": "reconciliation_result.json",
+    "reconciliation_xlsx": "reconciliation.xlsx"
+  },
+  "parameters": {
+    "amount_exact": true,
+    "date_tolerance_days": 3,
+    "opening_balance_source": "cashbook",
+    "period_from": "2024-04-01",
+    "period_to": "2025-03-31"
+  },
+  "timestamp": "2026-11-03T18:53:32.366207"
+}

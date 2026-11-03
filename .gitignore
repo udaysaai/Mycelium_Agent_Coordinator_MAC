@@ -39,3 +39,7 @@ desktop.ini
 
 # Scratch scripts
 scratch/
+
+# Government Data & Private Records (Rule R11)
+*ग्रामनिधी*.xlsx
+gp_private_records/
