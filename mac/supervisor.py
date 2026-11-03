@@ -422,6 +422,13 @@ class SupervisorDaemon:
 
                     win32file.CloseHandle(h_out)
                     kernel32.DeleteProcThreadAttributeList(attr_list)
+                    if out_file.exists():
+                        try:
+                            probe_chk = out_file.read_text(encoding="utf-8", errors="replace")
+                            if ("PROBE_JSON:" not in probe_chk or "import_failed" in probe_chk or "ctypes_imported" in probe_chk) and ("DLL load failed" in probe_chk or "ImportError" in probe_chk):
+                                appcontainer_launched = False
+                        except Exception:
+                            pass
             except Exception as e:
                 logger.warning(f"AppContainer worker launch attempt failed, falling back to Low-IL: {e}")
             finally:
