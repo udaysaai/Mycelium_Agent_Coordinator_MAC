@@ -47,7 +47,8 @@
 | **CI-FIX** | `3830245` | Excluded test_banned_words.py and ci.yml from CI inline grep check to prevent self-flagging. | CI-RUNTIME-FIX |
 | **CI-RUNTIME-FIX** | `37e849e` | Added worker runtime setup in CI workflow and fresh clone script to support worker isolation tests. | CI-STANDALONE-RUNTIME |
 | **CI-STANDALONE-RUNTIME** | `b7a808f` | Implemented scripts/setup_worker_runtime.py provisioning standalone Python at runtime/worker_python/python.exe with package ACLs. | COPILOT-SYNC |
-| **COPILOT-SYNC** | `0571f1d` | Merged Copilot network test stabilization for test_w3_adversarial_network_attempts. | Gate B2 Complete |
+| **COPILOT-SYNC** | `0571f1d` | Merged Copilot network test stabilization for test_w3_adversarial_network_attempts. | WS3.10-PRE |
+| **WS3.10-PRE** | `40943b0` | Handled AppContainer dynamic code failure with Low-IL fallback in supervisor.py. | WS3.10-RED |
 
 ---
 
