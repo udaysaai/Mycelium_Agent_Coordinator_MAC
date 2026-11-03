@@ -27,6 +27,27 @@ from privacy import redact_pii_string
 # 1. Parsing & Normalization Utilities
 # -----------------------------------------------------------------------------
 
+DEVANAGARI_DIGITS_MAP = str.maketrans("०१२३४५६७८९", "0123456789")
+
+
+def normalize_devanagari_digits(val: Any) -> str:
+    """Normalize Devanagari numerals ०-९ to ASCII 0-9."""
+    if val is None:
+        return ""
+    s = unicodedata.normalize("NFC", str(val))
+    return s.translate(DEVANAGARI_DIGITS_MAP)
+
+
+def clean_date_string(val: Any) -> str:
+    """Clean and normalize date string: Devanagari numerals to ASCII, multiple dots/slashes/hyphens to single separator."""
+    if val is None:
+        return ""
+    s = normalize_devanagari_digits(val).strip()
+    s = re.sub(r"\.{2,}", ".", s)
+    s = re.sub(r"/{2,}", "/", s)
+    s = re.sub(r"-{2,}", "-", s)
+    return s
+
 def parse_indian_amount(val: Any) -> Decimal:
     """
     Parse currency string/number into an exact Decimal quantized to 2 places.
@@ -39,12 +60,9 @@ def parse_indian_amount(val: Any) -> Decimal:
     if isinstance(val, (int, float, Decimal)):
         return Decimal(str(val)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    text = str(val).strip()
+    text = normalize_devanagari_digits(val).strip()
     if not text:
         return Decimal("0.00")
-
-    # NFC normalize
-    text = unicodedata.normalize("NFC", text)
 
     # Detect negative indicator in parentheses: (1,234.56)
     is_negative = False
@@ -82,6 +100,7 @@ def parse_indian_amount(val: Any) -> Decimal:
 def parse_flexible_date(val: Any) -> Optional[date]:
     """
     Parse a variety of date formats (dd/mm/yyyy, dd-mm-yyyy, yyyy-mm-dd, openpyxl datetime).
+    Normalizes Devanagari numerals and cleans repeated separator typos.
     """
     if val is None:
         return None
@@ -90,14 +109,15 @@ def parse_flexible_date(val: Any) -> Optional[date]:
     if isinstance(val, date):
         return val
 
-    s = str(val).strip()
+    s = clean_date_string(val)
     if not s:
         return None
 
     # Supported formats
     formats = [
         "%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y",
-        "%d/%m/%y", "%d-%m-%y", "%Y/%m/%d", "%d %b %Y", "%d %B %Y"
+        "%d/%m/%y", "%d-%m-%y", "%Y/%m/%d", "%d %b %Y", "%d %B %Y",
+        "%d.%m.%y"
     ]
     for fmt in formats:
         try:
@@ -134,7 +154,7 @@ def normalize_reference(ref_str: Any) -> str:
     """
     if not ref_str:
         return ""
-    text = str(ref_str).strip()
+    text = normalize_devanagari_digits(ref_str).strip()
     # Strip common prefixes
     text = re.sub(r"(?i)^(chq|cheque|utr|vchr|vch|trn|ref|chqno|receipt|rcpt)[-:\s#]*", "", text)
     # Retain alphanumeric only
@@ -221,6 +241,7 @@ class DeterministicReconciliationEngine:
         self.config = config
         self.period_start: Optional[date] = parse_flexible_date(config.period_from)
         self.period_end: Optional[date] = parse_flexible_date(config.period_to)
+        self._ledger_metadata: Dict[str, Dict[str, Any]] = {}
 
     def load_ledger(self, file_path: Path, source_name: str) -> List[LedgerRow]:
         """
@@ -280,53 +301,509 @@ class DeterministicReconciliationEngine:
 
         return mapping
 
+
+    def get_ledger_metadata(self, file_path: Path) -> Dict[str, Any]:
+        """Retrieve extracted ledger metadata (opening/closing balance, subtotal mismatches)."""
+        resolved = str(Path(file_path).resolve())
+        if resolved not in self._ledger_metadata:
+            self.load_ledger(file_path, "cashbook")
+        return self._ledger_metadata.get(resolved, {"is_classified_gp_format": False})
+
+    def _is_classified_gp_cashbook(self, raw_rows: List[List[Any]]) -> bool:
+        """
+        Auto-detect if a ledger file is a multi-section Maharashtra Gram Panchayat classified cashbook.
+        """
+        if raw_rows:
+            head_str = " ".join(str(c or "") for c in raw_rows[0]).lower()
+            if "withdrawal" in head_str or "deposit" in head_str:
+                return False
+        sample = raw_rows[:60]
+        flat_text = " ".join(" ".join(str(c or "") for c in row) for row in sample)
+        text_norm = unicodedata.normalize("NFC", flat_text).lower()
+
+        has_summary = any(k in text_norm for k in [
+            "सुरुवातीची शिल्लक", "आरंभीची शिल्लक", "अखेरची शिल्लक", "अखेर शिल्लक",
+            "एकुण जमा", "एकूण जमा", "एकुण खर्च", "एकूण खर्च"
+        ])
+        has_voucher_header = (
+            "पावती क्र" in text_norm or "प्रमाणक क्र" in text_norm or
+            ("पावती" in text_norm and "प्रमाणक" in text_norm)
+        )
+        has_gp_terms = any(k in text_norm for k in [
+            "ग्रामपंचायत", "ग्रामनिधी", "अनामत", "घरपट्टी", "शॉपिंग भाडे", "वेतन", "बॅक चार्जेस"
+        ])
+
+        return (has_summary and has_voucher_header) or (has_voucher_header and has_gp_terms)
+
+    def _load_classified_gp_xlsx(
+        self,
+        classified_sheets: List[Tuple[str, Any, List[List[Any]]]],
+        file_path: Path,
+        source_name: str
+    ) -> List[LedgerRow]:
+        all_rows: List[LedgerRow] = []
+        combined_mismatches: List[Dict[str, Any]] = []
+        opening_balance: Optional[Decimal] = None
+        closing_balance: Optional[Decimal] = None
+        summary_total_credits: Optional[Decimal] = None
+        summary_total_debits: Optional[Decimal] = None
+        grand_total: Optional[Decimal] = None
+
+        row_idx = 1
+
+        for sheet_name, ws, raw_rows in classified_sheets:
+            default_dir = "CREDIT" if "जमा" in sheet_name else ("DEBIT" if "खर्च" in sheet_name else "CREDIT")
+            current_dir = default_dir
+            current_section = ""
+            current_section_rows: List[LedgerRow] = []
+            last_valid_date: Optional[date] = None
+            last_title = ""
+
+            for r_idx, row in enumerate(raw_rows, start=1):
+                if not any(row):
+                    continue
+                clean_cells = [unicodedata.normalize("NFC", str(c or "")).strip() for c in row]
+                non_empty = [c for c in clean_cells if c]
+                if not non_empty:
+                    continue
+
+                full_row_str = " ".join(clean_cells)
+
+                # Summary rows
+                if "सुरुवातीची शिल्लक" in full_row_str or "आरंभीची शिल्लक" in full_row_str:
+                    for c in row:
+                        if isinstance(c, (int, float, Decimal)):
+                            opening_balance = Decimal(str(c)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                            break
+                    if opening_balance is None and non_empty:
+                        opening_balance = parse_indian_amount(non_empty[-1])
+                    continue
+
+                if ("एकुण जमा" in full_row_str or "एकूण जमा" in full_row_str) and summary_total_credits is None:
+                    for c in row:
+                        if isinstance(c, (int, float, Decimal)):
+                            summary_total_credits = Decimal(str(c)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                            break
+                    if summary_total_credits is None and non_empty:
+                        summary_total_credits = parse_indian_amount(non_empty[-1])
+                    continue
+
+                if ("एकुण खर्च" in full_row_str or "एकूण खर्च" in full_row_str) and summary_total_debits is None:
+                    for c in row:
+                        if isinstance(c, (int, float, Decimal)):
+                            summary_total_debits = Decimal(str(c)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                            break
+                    if summary_total_debits is None and non_empty:
+                        summary_total_debits = parse_indian_amount(non_empty[-1])
+                    continue
+
+                if "अखेरची शिल्लक" in full_row_str or "अखेर शिल्लक" in full_row_str:
+                    for c in row:
+                        if isinstance(c, (int, float, Decimal)):
+                            closing_balance = Decimal(str(c)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                            break
+                    if closing_balance is None and non_empty:
+                        closing_balance = parse_indian_amount(non_empty[-1])
+                    continue
+
+                if "एकुण एकंदर" in full_row_str or "एकूण एकंदर" in full_row_str:
+                    for c in row:
+                        if isinstance(c, (int, float, Decimal)):
+                            grand_total = Decimal(str(c)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                            break
+                    if grand_total is None and non_empty:
+                        grand_total = parse_indian_amount(non_empty[-1])
+                    continue
+
+                if any(kw in full_row_str.lower() for kw in ["income", "ग्रामपंचायत", "सन 2024-25"]) and len(non_empty) <= 2:
+                    continue
+
+                # Header rows
+                c0 = clean_cells[0]
+                if "पावती क्र" in c0:
+                    current_dir = "CREDIT"
+                    if last_title:
+                        current_section = last_title
+                    continue
+                if "प्रमाणक क्र" in c0:
+                    current_dir = "DEBIT"
+                    if last_title:
+                        current_section = last_title
+                    continue
+
+                # Section Title row
+                if c0 and (len(clean_cells) <= 2 or not clean_cells[2]) and not isinstance(row[0], (int, float)):
+                    if not any(kw in c0 for kw in ["पावती", "प्रमाणक", "सन", "ग्रामनिधी"]):
+                        last_title = c0
+                        current_section = c0
+                        continue
+
+                # Subtotal row
+                v0 = row[0]
+                v1 = row[1] if len(row) > 1 else None
+                v2 = row[2] if len(row) > 2 else None
+                v5 = row[5] if len(row) > 5 else None
+
+                is_subtotal = False
+                declared_sub = Decimal("0.00")
+
+                if (v0 is None or clean_cells[0] == "") and (v1 is None or clean_cells[1] == ""):
+                    if isinstance(v5, (int, float, Decimal)):
+                        is_subtotal = True
+                        declared_sub = Decimal(str(v5)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    elif isinstance(v2, (int, float, Decimal)):
+                        is_subtotal = True
+                        declared_sub = Decimal(str(v2)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    elif len(clean_cells) > 2 and clean_cells[2]:
+                        try:
+                            parsed_sub = parse_indian_amount(clean_cells[2])
+                            if parsed_sub > Decimal("0.00"):
+                                is_subtotal = True
+                                declared_sub = parsed_sub
+                        except Exception:
+                            pass
+
+                if is_subtotal:
+                    calc_sum = sum((r.amount for r in current_section_rows), Decimal("0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    declared_sub_q = declared_sub.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    if current_section_rows and calc_sum != declared_sub_q:
+                        combined_mismatches.append({
+                            "section": current_section or "Unknown Section",
+                            "calculated_sum": calc_sum,
+                            "declared_subtotal": declared_sub_q,
+                            "difference": abs(calc_sum - declared_sub_q)
+                        })
+                    current_section_rows = []
+                    last_valid_date = None
+                    continue
+
+                # Transactions
+                amt = Decimal("0.00")
+                if isinstance(v2, (int, float, Decimal)):
+                    amt = Decimal(str(v2)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                elif len(clean_cells) > 2 and clean_cells[2]:
+                    amt = parse_indian_amount(clean_cells[2])
+
+                if amt != Decimal("0.00"):
+                    raw_d = clean_cells[1]
+                    p_date: Optional[date] = None
+                    if isinstance(v1, (datetime, date)):
+                        p_date = v1.date() if isinstance(v1, datetime) else v1
+                        last_valid_date = p_date
+                    elif raw_d:
+                        p_date = parse_flexible_date(raw_d)
+                        if p_date:
+                            last_valid_date = p_date
+                    elif last_valid_date:
+                        p_date = last_valid_date
+
+                    raw_ref = clean_cells[0]
+                    norm_ref = normalize_reference(raw_ref)
+
+                    narration_parts = [c for idx, c in enumerate(clean_cells) if idx not in (0, 1, 2) and c]
+                    narration = " - ".join(narration_parts) if narration_parts else current_section
+
+                    debit = amt if current_dir == "DEBIT" else Decimal("0.00")
+                    credit = amt if current_dir == "CREDIT" else Decimal("0.00")
+                    row_id = f"CB_{row_idx:04d}"
+
+                    obj = LedgerRow(
+                        row_id=row_id,
+                        source="cashbook",
+                        row_index=row_idx,
+                        date=p_date,
+                        raw_date_str=raw_d,
+                        narration=narration,
+                        reference=normalize_devanagari_digits(raw_ref),
+                        normalized_ref=norm_ref,
+                        debit=debit,
+                        credit=credit,
+                        amount=amt,
+                        direction=current_dir,
+                        balance=None,
+                        raw_row={f"col_{i}": str(c) for i, c in enumerate(row)}
+                    )
+                    all_rows.append(obj)
+                    current_section_rows.append(obj)
+                    row_idx += 1
+
+        resolved_path = str(Path(file_path).resolve())
+        cb_cr_sum = sum((r.amount for r in all_rows if r.direction == "CREDIT"), Decimal("0.00"))
+        cb_db_sum = sum((r.amount for r in all_rows if r.direction == "DEBIT"), Decimal("0.00"))
+        calc_op = opening_balance if opening_balance is not None else Decimal("0.00")
+        calc_cr = summary_total_credits if summary_total_credits is not None else cb_cr_sum
+        calc_db = summary_total_debits if summary_total_debits is not None else cb_db_sum
+        calc_gr = grand_total if grand_total is not None else (calc_op + calc_cr)
+        calc_cl = closing_balance if closing_balance is not None else (calc_gr - calc_db)
+
+        self._ledger_metadata[resolved_path] = {
+            "is_classified_gp_format": True,
+            "opening_balance": calc_op,
+            "closing_balance": calc_cl,
+            "summary_total_credits": calc_cr,
+            "summary_total_debits": calc_db,
+            "grand_total": calc_gr,
+            "section_subtotal_mismatches": combined_mismatches
+        }
+
+        return all_rows
+
+    def _load_classified_gp_cashbook(
+        self,
+        raw_rows: List[List[Any]],
+        file_path: Path,
+        source_name: str
+    ) -> List[LedgerRow]:
+        """
+        Parse multi-section Maharashtra Gram Panchayat classified cashbook.
+        Extracts CREDIT/DEBIT rows by section, handles continuation dates,
+        ignores subtotal/summary lines as individual rows, and validates section subtotals.
+        """
+        ledger_rows: List[LedgerRow] = []
+        current_section: str = ""
+        current_direction: str = "CREDIT"
+        last_valid_date: Optional[date] = None
+        current_section_rows: List[LedgerRow] = []
+        section_subtotal_mismatches: List[Dict[str, Any]] = []
+
+        opening_balance: Optional[Decimal] = None
+        closing_balance: Optional[Decimal] = None
+        summary_total_credits: Optional[Decimal] = None
+        summary_total_debits: Optional[Decimal] = None
+        grand_total: Optional[Decimal] = None
+
+        row_idx = 1
+
+        for raw_cells in raw_rows:
+            if not any(raw_cells):
+                continue
+
+            clean_cells = [unicodedata.normalize("NFC", str(c or "")).strip() for c in raw_cells]
+            non_empty = [c for c in clean_cells if c]
+            if not non_empty:
+                continue
+
+            full_row_str = " ".join(clean_cells)
+
+            # 1. Summary Rows
+            if "सुरुवातीची शिल्लक" in full_row_str or "आरंभीची शिल्लक" in full_row_str:
+                opening_balance = parse_indian_amount(non_empty[-1])
+                continue
+            if "एकुण जमा" in full_row_str or "एकूण जमा" in full_row_str:
+                summary_total_credits = parse_indian_amount(non_empty[-1])
+                continue
+            if "एकुण खर्च" in full_row_str or "एकूण खर्च" in full_row_str:
+                summary_total_debits = parse_indian_amount(non_empty[-1])
+                continue
+            if "अखेरची शिल्लक" in full_row_str or "अखेर शिल्लक" in full_row_str:
+                closing_balance = parse_indian_amount(non_empty[-1])
+                continue
+            if "एकुण एकंदर" in full_row_str or "एकूण एकंदर" in full_row_str:
+                grand_total = parse_indian_amount(non_empty[-1])
+                continue
+            if "income" in full_row_str.lower() and len(non_empty) <= 2:
+                continue
+            if "ग्रामपंचायत" in full_row_str and "ग्रामनिधी" in full_row_str and len(non_empty) <= 2:
+                continue
+
+            # 2. Section Subtotal Rows (empty voucher and empty date)
+            first_cell = clean_cells[0] if len(clean_cells) > 0 else ""
+            second_cell = clean_cells[1] if len(clean_cells) > 1 else ""
+
+            is_subtotal_row = False
+            if not first_cell and not second_cell and len(non_empty) >= 1:
+                is_subtotal_row = True
+            elif any(k in full_row_str for k in ["एकूण", "एकुण", "subtotal", "टोटल"]) and (not first_cell or not second_cell):
+                is_subtotal_row = True
+
+            if is_subtotal_row:
+                declared_subtotal = Decimal("0.00")
+                if len(clean_cells) > 2 and clean_cells[2]:
+                    declared_subtotal = parse_indian_amount(clean_cells[2])
+                elif non_empty:
+                    declared_subtotal = parse_indian_amount(non_empty[0])
+
+                calc_sum = sum((r.amount for r in current_section_rows), Decimal("0.00"))
+                if current_section_rows and calc_sum != declared_subtotal:
+                    section_subtotal_mismatches.append({
+                        "section": current_section or "Unknown Section",
+                        "calculated_sum": calc_sum,
+                        "declared_subtotal": declared_subtotal,
+                        "difference": abs(calc_sum - declared_subtotal)
+                    })
+
+                current_section_rows = []
+                last_valid_date = None
+                continue
+
+            # 3. Repeating Header Rows
+            norm_first = normalize_devanagari_digits(first_cell).lower()
+            if "पावती" in norm_first:
+                current_direction = "CREDIT"
+                continue
+            if "प्रमाणक" in norm_first:
+                current_direction = "DEBIT"
+                continue
+
+            # 4. Section Title Rows
+            if len(non_empty) == 1:
+                cand_title = non_empty[0]
+                norm_cand = normalize_devanagari_digits(cand_title)
+                if not parse_flexible_date(cand_title) and not re.search(r"^\d+$", norm_cand):
+                    current_section = cand_title
+                    if "जमा" in cand_title or any(k in cand_title for k in ["घरपट्टी", "शॉपिंग", "भाडे", "पाणीपट्टी", "दिवा", "इतर जमा", "अनुदान", "कर"]):
+                        current_direction = "CREDIT"
+                    elif "खर्च" in cand_title or any(k in cand_title for k in ["बॅक चार्जेस", "बँक", "वेतन", "पगार", "सादिल", "दुरुस्ती", "लाईट", "बक्षीस", "खरेदी", "काम"]):
+                        current_direction = "DEBIT"
+                    continue
+
+            # 5. Transaction Rows
+            raw_ref = first_cell
+            norm_ref = normalize_reference(raw_ref)
+
+            raw_date = second_cell
+            parsed_d = None
+            if raw_date:
+                parsed_d = parse_flexible_date(raw_date)
+                if parsed_d:
+                    last_valid_date = parsed_d
+            elif last_valid_date:
+                # Continuation row: inherit last valid date in section
+                parsed_d = last_valid_date
+                raw_date = str(last_valid_date)
+
+            row_amount = Decimal("0.00")
+            amt_col_idx = 2
+            if len(clean_cells) > 2 and clean_cells[2]:
+                row_amount = parse_indian_amount(clean_cells[2])
+
+            if row_amount == Decimal("0.00"):
+                for idx, c in enumerate(clean_cells[3:], start=3):
+                    candidate_amt = parse_indian_amount(c)
+                    if candidate_amt > Decimal("0.00"):
+                        row_amount = candidate_amt
+                        amt_col_idx = idx
+                        break
+
+            if row_amount <= Decimal("0.00"):
+                continue
+
+            narration_parts = [c for idx, c in enumerate(clean_cells) if idx not in (0, 1, amt_col_idx) and c]
+            narration = " - ".join(narration_parts) if narration_parts else (current_section or "")
+
+            debit = row_amount if current_direction == "DEBIT" else Decimal("0.00")
+            credit = row_amount if current_direction == "CREDIT" else Decimal("0.00")
+
+            prefix = "CB" if source_name == "cashbook" else "BS"
+            row_id = f"{prefix}_{row_idx:04d}"
+
+            row_obj = LedgerRow(
+                row_id=row_id,
+                source=source_name,
+                row_index=row_idx,
+                date=parsed_d,
+                raw_date_str=raw_date,
+                narration=narration,
+                reference=normalize_devanagari_digits(raw_ref),
+                normalized_ref=norm_ref,
+                debit=debit,
+                credit=credit,
+                amount=row_amount,
+                direction=current_direction,
+                balance=None,
+                raw_row={f"col_{i}": str(c) for i, c in enumerate(raw_cells)}
+            )
+
+            ledger_rows.append(row_obj)
+            current_section_rows.append(row_obj)
+            row_idx += 1
+
+        resolved_path = str(Path(file_path).resolve())
+        self._ledger_metadata[resolved_path] = {
+            "is_classified_gp_format": True,
+            "opening_balance": opening_balance,
+            "closing_balance": closing_balance,
+            "summary_total_credits": summary_total_credits,
+            "summary_total_debits": summary_total_debits,
+            "grand_total": grand_total,
+            "section_subtotal_mismatches": section_subtotal_mismatches
+        }
+
+        return ledger_rows
+
     def _load_csv(self, file_path: Path, source_name: str) -> List[LedgerRow]:
         rows: List[LedgerRow] = []
         with open(file_path, "r", encoding="utf-8-sig", errors="replace") as f:
-            reader = csv.reader(f)
-            header_row = None
-            for row in reader:
-                if any(row):
-                    header_row = row
-                    break
-            if not header_row:
-                return []
+            all_rows = list(csv.reader(f))
 
-            mapping = self._detect_headers(header_row)
-            row_idx = 1
-            for raw_cells in reader:
-                if not any(raw_cells):
-                    continue
-                row_obj = self._build_ledger_row(raw_cells, mapping, source_name, row_idx)
-                if row_obj:
-                    rows.append(row_obj)
-                    row_idx += 1
-        return rows
+        if not all_rows:
+            return []
 
-    def _load_xlsx(self, file_path: Path, source_name: str) -> List[LedgerRow]:
-        rows: List[LedgerRow] = []
-        wb = openpyxl.load_workbook(file_path, data_only=True)
-        sheet = wb.active
+        if source_name != "bank" and self._is_classified_gp_cashbook(all_rows):
+            return self._load_classified_gp_cashbook(all_rows, file_path, source_name)
+
         header_row = None
-        for row in sheet.iter_rows(values_only=True):
+        header_idx = -1
+        for idx, row in enumerate(all_rows):
             if any(row):
-                header_row = [str(c or "") for c in row]
+                header_row = row
+                header_idx = idx
                 break
         if not header_row:
             return []
 
         mapping = self._detect_headers(header_row)
         row_idx = 1
-        # Iterate remaining rows
-        seen_header = False
-        for raw_cells in sheet.iter_rows(values_only=True):
-            if not seen_header:
-                if any(raw_cells):
-                    seen_header = True
-                continue
+        for raw_cells in all_rows[header_idx + 1:]:
             if not any(raw_cells):
                 continue
-            row_obj = self._build_ledger_row(list(raw_cells), mapping, source_name, row_idx)
+            row_obj = self._build_ledger_row(raw_cells, mapping, source_name, row_idx)
+            if row_obj:
+                rows.append(row_obj)
+                row_idx += 1
+        return rows
+
+    def _load_xlsx(self, file_path: Path, source_name: str) -> List[LedgerRow]:
+        rows: List[LedgerRow] = []
+        wb = openpyxl.load_workbook(file_path, data_only=True)
+
+        # Multi-sheet classified Gram Panchayat cashbook detection
+        classified_sheets = []
+        if source_name != "bank":
+            for sname in wb.sheetnames:
+                ws = wb[sname]
+                sheet_rows = [[c for c in r] for r in ws.iter_rows(values_only=True)]
+                if sheet_rows and self._is_classified_gp_cashbook([[str(c or '') for c in r] for r in sheet_rows]):
+                    classified_sheets.append((sname, ws, sheet_rows))
+
+        if classified_sheets:
+            return self._load_classified_gp_xlsx(classified_sheets, file_path, source_name)
+
+        sheet = wb.active
+        raw_rows = [[str(c) if c is not None else "" for c in row] for row in sheet.iter_rows(values_only=True)]
+
+        if not raw_rows:
+            return []
+
+        if self._is_classified_gp_cashbook(raw_rows):
+            return self._load_classified_gp_cashbook(raw_rows, file_path, source_name)
+
+        header_row = None
+        header_idx = -1
+        for idx, row in enumerate(raw_rows):
+            if any(row):
+                header_row = row
+                header_idx = idx
+                break
+        if not header_row:
+            return []
+
+        mapping = self._detect_headers(header_row)
+        row_idx = 1
+        for raw_cells in raw_rows[header_idx + 1:]:
+            if not any(raw_cells):
+                continue
+            row_obj = self._build_ledger_row(raw_cells, mapping, source_name, row_idx)
             if row_obj:
                 rows.append(row_obj)
                 row_idx += 1
@@ -744,6 +1221,13 @@ class DeterministicReconciliationEngine:
         exceptions.sort(key=lambda e: (e["category"], e.get("date", ""), e.get("row_id", "")))
 
         # Summary Metrics
+        cb_meta = self.get_ledger_metadata(cashbook_path)
+        op_bal = cb_meta.get("opening_balance")
+        cl_bal = cb_meta.get("closing_balance")
+        st_credits = cb_meta.get("summary_total_credits")
+        st_debits = cb_meta.get("summary_total_debits")
+        gr_total = cb_meta.get("grand_total")
+
         cb_total_credits = sum(r.credit for r in cb_rows)
         cb_total_debits = sum(r.debit for r in cb_rows)
         bs_total_deposits = sum(r.credit for r in bs_rows)
@@ -752,12 +1236,21 @@ class DeterministicReconciliationEngine:
         summary = {
             "period_from": self.config.period_from,
             "period_to": self.config.period_to,
+            "opening_balance": f"{op_bal:.2f}" if op_bal is not None else "0.00",
+            "closing_balance": f"{cl_bal:.2f}" if cl_bal is not None else "0.00",
+            "grand_total": f"{gr_total:.2f}" if gr_total is not None else "0.00",
             "cashbook_total_rows": len(cb_rows),
             "bank_total_rows": len(bs_rows),
+            "cashbook_credit_rows": sum(1 for r in cb_rows if r.direction == "CREDIT"),
+            "cashbook_debit_rows": sum(1 for r in cb_rows if r.direction == "DEBIT"),
             "total_matched_pairs": len(matched_records),
+            "matched_count": len(matched_records),
             "total_exceptions": len(exceptions),
+            "unmatched_cashbook_count": sum(1 for e in exceptions if e["category"] == "in_cashbook_only"),
+            "unmatched_bank_count": sum(1 for e in exceptions if e["category"] == "in_bank_only"),
             "cashbook_total_credits": f"{cb_total_credits:.2f}",
             "cashbook_total_debits": f"{cb_total_debits:.2f}",
+            "section_subtotal_debits": f"{st_debits:.2f}" if st_debits is not None else f"{cb_total_debits:.2f}",
             "bank_total_deposits": f"{bs_total_deposits:.2f}",
             "bank_total_withdrawals": f"{bs_total_withdrawals:.2f}",
             "matched_by_pass": {
@@ -774,10 +1267,27 @@ class DeterministicReconciliationEngine:
             }
         }
 
+        cb_meta = self.get_ledger_metadata(cashbook_path)
+        mismatches = cb_meta.get("section_subtotal_mismatches", [])
+
         result = {
             "summary": summary,
             "matched": matched_records,
-            "exceptions": exceptions
+            "exceptions": exceptions,
+            "metadata": {
+                "is_classified_gp_format": cb_meta.get("is_classified_gp_format", False),
+                "opening_balance": str(cb_meta.get("opening_balance") or ""),
+                "closing_balance": str(cb_meta.get("closing_balance") or ""),
+                "section_subtotal_mismatches": [
+                    {
+                        "section": m["section"],
+                        "calculated_sum": str(m["calculated_sum"]),
+                        "declared_subtotal": str(m["declared_subtotal"]),
+                        "difference": str(m["difference"])
+                    }
+                    for m in mismatches
+                ]
+            }
         }
 
         # ---------------------------------------------------------------------
@@ -813,6 +1323,7 @@ class DeterministicReconciliationEngine:
             json.dump(manifest, f, indent=2, sort_keys=True)
 
         xlsx_path = output_dir / "reconciliation.xlsx"
+        summary["section_subtotal_mismatches"] = cb_meta.get("section_subtotal_mismatches", [])
         self._write_excel(xlsx_path, summary, matched_records, exceptions)
 
         return result
@@ -907,6 +1418,19 @@ class DeterministicReconciliationEngine:
         ws_ass.append(["Amount Exact Matching", "True"])
         ws_ass.append(["Opening Balance Source", self.config.opening_balance_source])
         ws_ass.append(["Formula Injection Sanitization", "Prefixing single quote on control characters"])
+
+        mismatches = summary.get("section_subtotal_mismatches") or []
+        if mismatches:
+            ws_ass.append(["", ""])
+            ws_ass.append(["Section Subtotal Mismatches Flagged", len(mismatches)])
+            ws_ass.append(["Section Name", "Calculated Sum", "Declared Subtotal", "Difference"])
+            for m in mismatches:
+                ws_ass.append([
+                    sanitize_cell_formula_injection(m["section"]),
+                    str(m["calculated_sum"]),
+                    str(m["declared_subtotal"]),
+                    str(m["difference"])
+                ])
 
         wb.save(xlsx_path)
 
