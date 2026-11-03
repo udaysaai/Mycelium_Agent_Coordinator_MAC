@@ -49,11 +49,15 @@
 | **CI-STANDALONE-RUNTIME** | `b7a808f` | Implemented scripts/setup_worker_runtime.py provisioning standalone Python at runtime/worker_python/python.exe with package ACLs. | COPILOT-SYNC |
 | **COPILOT-SYNC** | `0571f1d` | Merged Copilot network test stabilization for test_w3_adversarial_network_attempts. | WS3.10-PRE |
 | **WS3.10-PRE** | `40943b0` | Handled AppContainer dynamic code failure with Low-IL fallback in supervisor.py. | WS3.10-RED |
+| **WS3.10-RED** | `87d40f4` | Added test_gp_classified_cashbook.py testing multi-section GP cashbook format with synthetic Adarshgaon data in RED commit. | WS3.10-GREEN |
+| **WS3.10-GREEN** | `e9a9838` | Implemented multi-section Gram Panchayat classified cashbook parser with dynamic subtotal handling in GREEN commit. | WS3.11 |
+| **WS3.11** | `291bf3a` | Added pilot_demo/ Adarshgaon synthetic dataset, executed reconciliation engine (601 matched, 5 exceptions), and verified out-of-band receipt (verified=True). | WS3.12 |
+| **WS3.12** | `b19a10b` | Added reconciliation file picker, 5-part ledger balance summary cards, and 4-column responsive grid in Desktop UI. | Complete |
 
 ---
 
 ## Active Status Summary
-- **Total Passing Tests**: 194 passed across 17 test suites (0 failed, 0 skipped)
+- **Total Passing Tests**: 199 passed across 18 test suites (0 failed, 0 skipped)
 - **Two-Pass Mutation Score**: 20/20 killed (Pass 1: 3/3, Pass 2: 20/20)
 - **Banned Words Status**: Zero violations across .py, .md, .html, .js, and .css files
 - **Remote Push Policy**: Authorized automatic pushes
