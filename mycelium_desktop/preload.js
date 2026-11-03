@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('mycelium', {
 
   // Native Workspace Directory Selector
   selectWorkspaceDirectory: () => ipcRenderer.invoke('dialog:select-workspace'),
+  selectFile: (options) => ipcRenderer.invoke('dialog:select-file', options),
+  runReconciliation: (payload) => ipcRenderer.invoke('run-reconciliation', payload),
 
   // Desktop Integration & Startup
   setLoginItemSettings: (openAtLogin) => ipcRenderer.invoke('app:set-login-item', openAtLogin),
@@ -115,4 +117,8 @@ contextBridge.exposeInMainWorld('mycelium', {
       ipcRenderer.on(channel, (_event, ...args) => callback(channel.replace('shortcut:', ''), ...args));
     });
   }
+});
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args)
 });

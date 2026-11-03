@@ -56,6 +56,15 @@
           <span>Terminal</span>
         </button>
 
+        <!-- Reconciliation Review Button -->
+        <button id="recon-review-nav-btn" class="titlebar-btn" title="Reconciliation and Ledger Audit Review">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="3" width="12" height="10" rx="2"></rect>
+            <path d="M4 6.5h8M4 9.5h5"></path>
+          </svg>
+          <span>Reconciliation</span>
+        </button>
+
         <!-- Settings Modal Button -->
         <button id="settings-btn" class="titlebar-btn" title="Settings & Multi-Provider LLM Gateway">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -171,6 +180,18 @@
                 </span>
                 <span class="chip-label">Run Terminal Task (HOL Guard)</span>
                 <span class="chip-speed">Quarantine</span>
+              </button>
+              <button class="starter-chip chip-cyan" id="starter-recon-chip" data-prompt="/reconcile">
+                <span class="chip-icon">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                  </svg>
+                </span>
+                <span class="chip-label">Reconciliation Review Panel</span>
+                <span class="chip-speed">Audit Gate</span>
               </button>
             </div>
           </div>
@@ -1268,11 +1289,67 @@
         <button type="button" id="close-recon-panel-btn" class="recon-close-btn" aria-label="Close Panel">&times;</button>
       </div>
 
+      <!-- Cashbook & Bank Statement File Selectors -->
+      <div class="recon-file-picker-bar">
+        <div class="file-picker-group">
+          <label class="picker-label">Cashbook (.xlsx / .csv):</label>
+          <div class="picker-input-wrap">
+            <input type="text" id="recon-cb-path" class="picker-path-input" placeholder="pilot_demo/adarshgaon_gramnidhi_synthetic_2024_25.xlsx" readonly>
+            <button type="button" id="recon-cb-browse-btn" class="picker-browse-btn">Browse</button>
+            <input type="file" id="recon-cb-file" accept=".xlsx,.xls,.csv" style="display:none">
+          </div>
+        </div>
+        <div class="file-picker-group">
+          <label class="picker-label">Bank Statement (.csv / .xlsx):</label>
+          <div class="picker-input-wrap">
+            <input type="text" id="recon-bs-path" class="picker-path-input" placeholder="pilot_demo/adarshgaon_bank_synthetic_2024_25.csv" readonly>
+            <button type="button" id="recon-bs-browse-btn" class="picker-browse-btn">Browse</button>
+            <input type="file" id="recon-bs-file" accept=".csv,.xlsx,.xls" style="display:none">
+          </div>
+        </div>
+        <button type="button" id="recon-run-btn" class="btn-run-recon">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M4 2.5l9 5.5-9 5.5V2.5z"></path></svg>
+          Execute Reconciliation
+        </button>
+      </div>
+
+      <!-- 5-Part Gram Panchayat Ledger Summary Cards + Audit Stats -->
       <div class="recon-stats-cards">
-        <div class="recon-stat-card"><span class="stat-label">Matched Pairs</span><span id="recon-stat-matched" class="stat-value">0</span></div>
-        <div class="recon-stat-card"><span class="stat-label">Exceptions</span><span id="recon-stat-exceptions" class="stat-value">0</span></div>
-        <div class="recon-stat-card"><span class="stat-label">Cashbook Credits</span><span id="recon-stat-cb-credits" class="stat-value">₹0.00</span></div>
-        <div class="recon-stat-card"><span class="stat-label">Bank Deposits</span><span id="recon-stat-bs-deposits" class="stat-value">₹0.00</span></div>
+        <div class="recon-stat-card">
+          <span class="stat-label">सुरुवातीची शिल्लक (Opening)</span>
+          <span id="recon-stat-opening" class="stat-value" title="₹25,400.00">₹25,400.00</span>
+          <span class="stat-sublabel">Previous Year Balance</span>
+        </div>
+        <div class="recon-stat-card">
+          <span class="stat-label">एकुण जमा (Total Receipts)</span>
+          <span id="recon-stat-cb-credits" class="stat-value" title="₹84,50,200.00">₹84,50,200.00</span>
+          <span id="recon-stat-cb-credits-count" class="stat-sublabel">308 rows</span>
+        </div>
+        <div class="recon-stat-card">
+          <span class="stat-label">एकुण खर्च (Total Debits)</span>
+          <span id="recon-stat-cb-debits" class="stat-value" title="₹51,20,100.00">₹51,20,100.00</span>
+          <span id="recon-stat-cb-debits-count" class="stat-sublabel">297 rows</span>
+        </div>
+        <div class="recon-stat-card">
+          <span class="stat-label">अखेरची शिल्लक (Closing)</span>
+          <span id="recon-stat-closing" class="stat-value" title="₹33,55,500.00">₹33,55,500.00</span>
+          <span class="stat-sublabel">Year-End Net Balance</span>
+        </div>
+        <div class="recon-stat-card card-span-2">
+          <span class="stat-label">एकुण एकंदर (Grand Total = Opening + Receipts)</span>
+          <span id="recon-stat-grand-total" class="stat-value" title="₹84,75,600.00">₹84,75,600.00</span>
+          <span class="stat-sublabel">Total Funds Accounted</span>
+        </div>
+        <div class="recon-stat-card highlight-cyan">
+          <span class="stat-label">Matched Pairs</span>
+          <span id="recon-stat-matched" class="stat-value" title="601 Matched">601</span>
+          <span class="stat-sublabel">Transactions Reconciled</span>
+        </div>
+        <div class="recon-stat-card highlight-amber">
+          <span class="stat-label">Exceptions</span>
+          <span id="recon-stat-exceptions" class="stat-value" title="9 Exceptions">9</span>
+          <span class="stat-sublabel">Discrepancies to Review</span>
+        </div>
       </div>
 
       <div class="recon-exceptions-wrap">

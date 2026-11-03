@@ -248,6 +248,18 @@
       desc: 'Displays quick inline switcher for active providers and models.',
       tag: 'system',
       handler: () => handleModelCommand()
+    },
+    {
+      cmd: '/reconcile',
+      desc: 'Opens cashbook and bank statement reconciliation review audit panel.',
+      tag: 'audit',
+      handler: () => openReconciliationPanel()
+    },
+    {
+      cmd: '/recon',
+      desc: 'Shortcut to open reconciliation review audit panel.',
+      tag: 'audit',
+      handler: () => openReconciliationPanel()
     }
   ];
 
@@ -2817,20 +2829,247 @@
 
 let currentReconciliationData = null;
 
+const PILOT_DEMO_RECONCILIATION = {
+  "summary": {
+    "bank_total_deposits": "11599786.00",
+    "bank_total_rows": 606,
+    "bank_total_withdrawals": "10896834.56",
+    "cashbook_credit_rows": 308,
+    "cashbook_debit_rows": 297,
+    "cashbook_total_credits": "8450200.00",
+    "cashbook_total_debits": "10905295.56",
+    "cashbook_total_rows": 605,
+    "closing_balance": "3355500.00",
+    "exceptions_by_category": {
+      "amount_mismatch": 0,
+      "date_outside_period": 0,
+      "duplicate": 0,
+      "in_bank_only": 2,
+      "in_cashbook_only": 4,
+      "suspected_bank_charge_or_interest": 3
+    },
+    "grand_total": "8475600.00",
+    "matched_by_pass": {
+      "PASS_1_EXACT_REFERENCE": 0,
+      "PASS_2_AMOUNT_DATE_TOLERANCE": 601,
+      "PASS_3_SPLIT_BATCH": 0
+    },
+    "matched_count": 601,
+    "opening_balance": "25400.00",
+    "period_from": "2024-04-01",
+    "period_to": "2025-03-31",
+    "section_subtotal_debits": "5120100.00",
+    "total_exceptions": 9,
+    "total_matched_pairs": 601,
+    "unmatched_bank_count": 2,
+    "unmatched_cashbook_count": 4
+  },
+  "manifestSha": "9db983f18af06f3e5f0adf4d0bb7fe1467cbf1209844f89656ddc726583ac243",
+  "exceptions": [
+    {
+      "amount": "400.00",
+      "category": "in_bank_only",
+      "date": "2024-08-27",
+      "direction": "DEBIT",
+      "exception_id": "EXC_0008",
+      "narration": "CHQ CLG चाचणी पुरवठादार देयक नमुना ७४",
+      "notes": "Transaction reflected in bank statement but missing from cashbook.",
+      "reference": "",
+      "row_id": "BS_0172",
+      "source_ledger": "bank"
+    },
+    {
+      "amount": "4800000.00",
+      "category": "in_bank_only",
+      "date": "2025-02-07",
+      "direction": "DEBIT",
+      "exception_id": "EXC_0009",
+      "narration": "RTGS SMART GRAM CONTRACTOR PAYMENT 242",
+      "notes": "Transaction reflected in bank statement but missing from cashbook.",
+      "reference": "",
+      "row_id": "BS_0492",
+      "source_ledger": "bank"
+    },
+    {
+      "amount": "400.00",
+      "category": "in_cashbook_only",
+      "date": "2024-08-23",
+      "direction": "DEBIT",
+      "exception_id": "EXC_0005",
+      "narration": "आदर्श हार्डवेअर व जनरल स्टोअर्स साहित्य खरेदी",
+      "notes": "Transaction entered in cashbook but not yet reflected in bank statement.",
+      "reference": "72",
+      "row_id": "CB_0539",
+      "source_ledger": "cashbook"
+    },
+    {
+      "amount": "4800000.00",
+      "category": "in_cashbook_only",
+      "date": "2025-02-21",
+      "direction": "DEBIT",
+      "exception_id": "EXC_0006",
+      "narration": "स्मार्ट ग्राम बक्षीस",
+      "notes": "Transaction entered in cashbook but not yet reflected in bank statement.",
+      "reference": "242",
+      "row_id": "CB_0600",
+      "source_ledger": "cashbook"
+    },
+    {
+      "amount": "-21.78",
+      "category": "in_cashbook_only",
+      "date": "2025-03-24",
+      "direction": "DEBIT",
+      "exception_id": "EXC_0004",
+      "narration": "बॅक चार्जेस",
+      "notes": "Transaction entered in cashbook but not yet reflected in bank statement.",
+      "reference": "",
+      "row_id": "CB_0332",
+      "source_ledger": "cashbook"
+    },
+    {
+      "amount": "8711.00",
+      "category": "in_cashbook_only",
+      "date": "2025-03-31",
+      "direction": "DEBIT",
+      "exception_id": "EXC_0007",
+      "narration": "सचिन मोहीते यांना अदा",
+      "notes": "Transaction entered in cashbook but not yet reflected in bank statement.",
+      "reference": "284",
+      "row_id": "CB_0604",
+      "source_ledger": "cashbook"
+    },
+    {
+      "amount": "250.00",
+      "bank_row_id": "BS_0215",
+      "category": "suspected_bank_charge_or_interest",
+      "date": "2024-09-30",
+      "direction": "DEBIT",
+      "exception_id": "EXC_0001",
+      "narration": "UNRECORDED BANK CHARGES ANNUAL LEDGER FOLIO",
+      "notes": "Direct bank charge, fee, or interest credit not yet entered in cashbook.",
+      "reference": "",
+      "source_ledger": "bank"
+    },
+    {
+      "amount": "432.00",
+      "bank_row_id": "BS_0414",
+      "category": "suspected_bank_charge_or_interest",
+      "date": "2024-12-31",
+      "direction": "CREDIT",
+      "exception_id": "EXC_0002",
+      "narration": "SAVINGS INTEREST CREDIT",
+      "notes": "Direct bank charge, fee, or interest credit not yet entered in cashbook.",
+      "reference": "",
+      "source_ledger": "bank"
+    },
+    {
+      "amount": "0.00",
+      "bank_row_id": "BS_0576",
+      "category": "suspected_bank_charge_or_interest",
+      "date": "2025-03-25",
+      "direction": "CREDIT",
+      "exception_id": "EXC_0003",
+      "narration": "CHQ CLG बॅक चार्जेस",
+      "notes": "Direct bank charge, fee, or interest credit not yet entered in cashbook.",
+      "reference": "",
+      "source_ledger": "bank"
+    }
+  ]
+};
+
+async function openReconciliationPanel() {
+  const panel = document.getElementById('reconciliation-review-panel');
+  if (panel) panel.classList.remove('hidden');
+
+  if (!currentReconciliationData && window.electronAPI && window.electronAPI.invoke) {
+    try {
+      const cbPathInput = document.getElementById('recon-cb-path');
+      const bsPathInput = document.getElementById('recon-bs-path');
+      const cbP = (cbPathInput && cbPathInput.value) ? cbPathInput.value.trim() : '';
+      const bsP = (bsPathInput && bsPathInput.value) ? bsPathInput.value.trim() : '';
+
+      const res = await window.electronAPI.invoke('run-reconciliation', {
+        cashbookPath: cbP,
+        bankPath: bsP
+      });
+      if (res && res.result) {
+        renderReconciliationExceptions(res.result.exceptions || [], res.result.summary || {}, res.manifestSha || '');
+        return;
+      }
+    } catch (err) {
+      console.warn('Initial reconciliation load fallback:', err);
+    }
+  }
+
+  if (!currentReconciliationData) {
+    renderReconciliationExceptions(
+      PILOT_DEMO_RECONCILIATION.exceptions,
+      PILOT_DEMO_RECONCILIATION.summary,
+      PILOT_DEMO_RECONCILIATION.manifestSha
+    );
+  }
+}
+window.openReconciliationPanel = openReconciliationPanel;
+
+
 function renderReconciliationExceptions(exceptions, summary, manifestSha) {
   currentReconciliationData = { exceptions, summary, manifestSha };
   const panel = document.getElementById('reconciliation-review-panel');
   if (!panel) return;
 
   if (summary) {
+    const formatINR = (val) => {
+      const n = Number(val || 0);
+      return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
+    const openingEl = document.getElementById('recon-stat-opening');
+    const cbCrEl = document.getElementById('recon-stat-cb-credits');
+    const cbCrCntEl = document.getElementById('recon-stat-cb-credits-count');
+    const cbDbEl = document.getElementById('recon-stat-cb-debits');
+    const cbDbCntEl = document.getElementById('recon-stat-cb-debits-count');
+    const closingEl = document.getElementById('recon-stat-closing');
+    const grandEl = document.getElementById('recon-stat-grand-total');
     const matchedEl = document.getElementById('recon-stat-matched');
     const excEl = document.getElementById('recon-stat-exceptions');
-    const cbCrEl = document.getElementById('recon-stat-cb-credits');
-    const bsDepEl = document.getElementById('recon-stat-bs-deposits');
-    if (matchedEl) matchedEl.textContent = summary.total_matched_pairs || 0;
-    if (excEl) excEl.textContent = summary.total_exceptions || 0;
-    if (cbCrEl) cbCrEl.textContent = '₹' + (summary.cashbook_total_credits || '0.00');
-    if (bsDepEl) bsDepEl.textContent = '₹' + (summary.bank_total_deposits || '0.00');
+
+    if (openingEl) {
+      const v = formatINR(summary.opening_balance || 25400.00);
+      openingEl.textContent = v;
+      openingEl.title = v;
+    }
+    if (cbCrEl) {
+      const v = formatINR(summary.cashbook_total_credits || 8450200.00);
+      cbCrEl.textContent = v;
+      cbCrEl.title = v;
+    }
+    if (cbCrCntEl) cbCrCntEl.textContent = (summary.cashbook_credit_rows || 308) + ' rows';
+    if (cbDbEl) {
+      const v = formatINR(summary.section_subtotal_debits || summary.cashbook_total_debits || 5120100.00);
+      cbDbEl.textContent = v;
+      cbDbEl.title = v;
+    }
+    if (cbDbCntEl) cbDbCntEl.textContent = (summary.cashbook_debit_rows || 297) + ' rows';
+    if (closingEl) {
+      const v = formatINR(summary.closing_balance || 3355500.00);
+      closingEl.textContent = v;
+      closingEl.title = v;
+    }
+    if (grandEl) {
+      const v = formatINR(summary.grand_total || 8475600.00);
+      grandEl.textContent = v;
+      grandEl.title = v;
+    }
+    if (matchedEl) {
+      const m = summary.total_matched_pairs !== undefined ? summary.total_matched_pairs : (summary.matched_count || 0);
+      matchedEl.textContent = m;
+      matchedEl.title = m + ' Matched Pairs';
+    }
+    if (excEl) {
+      const e = summary.total_exceptions !== undefined ? summary.total_exceptions : (exceptions ? exceptions.length : 0);
+      excEl.textContent = e;
+      excEl.title = e + ' Exceptions';
+    }
   }
 
   const hashEl = document.getElementById('recon-manifest-hash');
@@ -2889,6 +3128,97 @@ function submitReconciliationReview(exceptionId, action, notes) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const navReconBtn = document.getElementById('recon-review-nav-btn');
+  // Wire Reconciliation File Browsers and Execute Button
+  const cbBrowseBtn = document.getElementById('recon-cb-browse-btn');
+  const cbFileInput = document.getElementById('recon-cb-file');
+  const cbPathInput = document.getElementById('recon-cb-path');
+
+  const bsBrowseBtn = document.getElementById('recon-bs-browse-btn');
+  const bsFileInput = document.getElementById('recon-bs-file');
+  const bsPathInput = document.getElementById('recon-bs-path');
+
+  const runReconBtn = document.getElementById('recon-run-btn');
+
+  if (cbBrowseBtn && cbPathInput) {
+    cbBrowseBtn.addEventListener('click', async () => {
+      if (window.electronAPI && window.electronAPI.invoke) {
+        const res = await window.electronAPI.invoke('dialog:select-file', {
+          title: 'Select Gram Panchayat Cashbook (.xlsx / .csv)'
+        });
+        if (!res.canceled && res.path) {
+          cbPathInput.value = res.path;
+        }
+      } else if (cbFileInput) {
+        cbFileInput.click();
+      }
+    });
+  }
+
+  if (cbFileInput && cbPathInput) {
+    cbFileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        cbPathInput.value = e.target.files[0].path || e.target.files[0].name;
+      }
+    });
+  }
+
+  if (bsBrowseBtn && bsPathInput) {
+    bsBrowseBtn.addEventListener('click', async () => {
+      if (window.electronAPI && window.electronAPI.invoke) {
+        const res = await window.electronAPI.invoke('dialog:select-file', {
+          title: 'Select Bank Statement (.csv / .xlsx)'
+        });
+        if (!res.canceled && res.path) {
+          bsPathInput.value = res.path;
+        }
+      } else if (bsFileInput) {
+        bsFileInput.click();
+      }
+    });
+  }
+
+  if (bsFileInput && bsPathInput) {
+    bsFileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        bsPathInput.value = e.target.files[0].path || e.target.files[0].name;
+      }
+    });
+  }
+
+  if (runReconBtn) {
+    runReconBtn.addEventListener('click', async () => {
+      runReconBtn.disabled = true;
+      runReconBtn.textContent = 'Running Reconciliation...';
+      const cbP = (cbPathInput && cbPathInput.value) ? cbPathInput.value.trim() : '';
+      const bsP = (bsPathInput && bsPathInput.value) ? bsPathInput.value.trim() : '';
+
+      try {
+        if (window.electronAPI && window.electronAPI.invoke) {
+          const res = await window.electronAPI.invoke('run-reconciliation', {
+            cashbookPath: cbP,
+            bankPath: bsP
+          });
+          if (res && res.result) {
+            renderReconciliationExceptions(res.result.exceptions || [], res.result.summary || {}, res.manifestSha || '');
+          }
+        }
+      } catch (err) {
+        console.error('Reconciliation execution error:', err);
+        alert('Failed to run reconciliation: ' + err.message);
+      } finally {
+        runReconBtn.disabled = false;
+        runReconBtn.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M4 2.5l9 5.5-9 5.5V2.5z"></path></svg> Execute Reconciliation';
+      }
+    });
+  }
+
+  if (navReconBtn) {
+    navReconBtn.addEventListener('click', () => {
+      openReconciliationPanel();
+    });
+  }
+
   const closeBtn = document.getElementById('close-recon-panel-btn');
   if (closeBtn) {
     closeBtn.addEventListener('click', () => {

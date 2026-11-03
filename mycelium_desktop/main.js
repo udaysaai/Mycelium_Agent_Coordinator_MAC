@@ -1280,6 +1280,97 @@ ipcMain.handle('dialog:select-workspace', async () => {
   return { canceled: false, path: selectedPath };
 });
 
+// Native Ledger File Selector
+ipcMain.handle('dialog:select-file', async (_event, options) => {
+  if (!mainWindow) return { canceled: true };
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: options?.title || 'Select Ledger File',
+    filters: options?.filters || [
+      { name: 'Ledger Files (*.xlsx, *.csv)', extensions: ['xlsx', 'csv', 'xls'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true };
+  }
+  return { canceled: false, path: result.filePaths[0] };
+});
+
+// Run Python Deterministic Reconciliation Engine
+ipcMain.handle('run-reconciliation', async (_event, payload) => {
+  const rootDir = path.resolve(__dirname, '..');
+  const cbPath = payload?.cashbookPath || path.join(rootDir, 'pilot_demo', 'adarshgaon_gramnidhi_synthetic_2024_25.xlsx');
+  const bsPath = payload?.bankPath || path.join(rootDir, 'pilot_demo', 'adarshgaon_bank_synthetic_2024_25.csv');
+  const outDir = payload?.outputDir || path.join(rootDir, 'pilot_demo', 'output');
+
+  return new Promise((resolve, reject) => {
+    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    const pyScript = [
+      'import sys, json',
+      'sys.path.insert(0, "mac")',
+      'sys.path.insert(0, ".")',
+      'from pathlib import Path',
+      'from reconciliation_engine import DeterministicReconciliationEngine, ReconciliationConfig',
+      'cb_file = Path(r"' + cbPath.replace(/"/g, '\"') + '")',
+      'bs_file = Path(r"' + bsPath.replace(/"/g, '\"') + '")',
+      'out_dir = Path(r"' + outDir.replace(/"/g, '\"') + '")',
+      'config = ReconciliationConfig(period_from="2024-04-01", period_to="2025-03-31", date_tolerance_days=3, amount_exact=True, output_folder=str(out_dir))',
+      'engine = DeterministicReconciliationEngine(config=config)',
+      'res = engine.reconcile(cb_file, bs_file, out_dir)',
+      'manifest_p = out_dir / "run_manifest.json"',
+      'sha = ""',
+      'if manifest_p.exists():',
+      '    try:',
+      '        m = json.loads(manifest_p.read_text(encoding="utf-8"))',
+      '        sha = m.get("inputs", {}).get("cashbook_sha256", "")',
+      '    except Exception: pass',
+      'print("JSON_START:" + json.dumps({"status": "OK", "result": res, "manifestSha": sha}))'
+    ].join('\n');
+
+    const child = spawn(pythonCmd, ['-c', pyScript], {
+      cwd: rootDir,
+      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+    });
+
+    let stdoutData = '';
+    let stderrData = '';
+    child.stdout.on('data', (d) => { stdoutData += d.toString('utf-8'); });
+    child.stderr.on('data', (d) => { stderrData += d.toString('utf-8'); });
+
+    child.on('close', (code) => {
+      if (stdoutData.includes('JSON_START:')) {
+        try {
+          const jsonStr = stdoutData.substring(stdoutData.indexOf('JSON_START:') + 11).trim();
+          const parsed = JSON.parse(jsonStr);
+          resolve(parsed);
+          return;
+        } catch (e) {
+          console.error('[Run Reconciliation JSON Parse Error]:', e.message);
+        }
+      }
+
+      // Fallback: Read generated json from disk if child wrote it
+      try {
+        const resPath = path.join(outDir, 'reconciliation_result.json');
+        const manPath = path.join(outDir, 'run_manifest.json');
+        if (fs.existsSync(resPath)) {
+          const res = JSON.parse(fs.readFileSync(resPath, 'utf-8'));
+          let sha = '';
+          if (fs.existsSync(manPath)) {
+            const m = JSON.parse(fs.readFileSync(manPath, 'utf-8'));
+            sha = m.inputs?.cashbook_sha256 || '';
+          }
+          resolve({ status: 'OK', result: res, manifestSha: sha });
+          return;
+        }
+      } catch (_) {}
+
+      reject(new Error(`Reconciliation failed with code ${code}: ${stderrData}`));
+    });
+  });
+});
+
 // Window zoom factor
 ipcMain.handle('window:set-zoom', async (_event, factor) => {
   const num = Number(factor) || 1.0;
